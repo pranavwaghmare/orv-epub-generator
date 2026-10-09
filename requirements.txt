@@ -1,0 +1,7 @@
+# ORV HTML Archiver & EPUB Generator Dependencies
+streamlit>=1.35.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+ebooklib>=0.18
+Pillow>=10.0.0
+pytest>=8.0.0

@@ -1,0 +1,23 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# Job data and generated archives (data preservation in jobs, excluded from git)
+data/jobs/
+*.epub
+*.tmp
+
+# Operating system / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
