@@ -122,6 +122,9 @@ def validate_archive(manifest: Manifest) -> ValidationResult:
                             msg = f"Chapter {format_chapter_display(c_num)} image #{img.index} is empty (0 bytes): {img.local_path}"
                             corrupt_files.append(msg)
                             detailed_report.append(f"❌ {msg}")
+                elif img.status == "skipped_banner":
+                    # Intentional optimization: recurring banner download was skipped during archival
+                    pass
                 elif img.status == "failed":
                     msg = f"Chapter {format_chapter_display(c_num)} image #{img.index} failed download: {img.error or 'unknown'}"
                     warnings.append(msg)

@@ -134,17 +134,26 @@ Your default web browser will open automatically at `http://localhost:8501`.
 
 ---
 
-## Phase 2: Offline EPUB Conversion
+---
 
-The EPUB converter operates **entirely offline** on the local files saved in `data/jobs/<job_id>/`:
-1. **Validate Archive**: Click **"🔍 Validate Archive"** to run an offline integrity audit verifying chapter continuity, HTML readability, and image presence.
-2. **Convert to EPUB**: Click **"📚 Convert to EPUB"**.
-   - Chapters are normalized and staged as XHTML in `conversion/staging/`.
-   - Staging is resumable: if interrupted, previously staged chapters are reused.
-   - EbookLib packages the book with standard EPUB 3 navigation, table of contents, and inline illustrations positioned exactly between paragraphs as in the source.
-   - The file is written to `output/ORV_Ch<start>-<end>.epub`.
-3. **Generate Anyway Override**: If an archive is incomplete (e.g., missing a chapter or image), conversion is blocked by default. Check **"⚠️ Generate Anyway"** to override the warning and compile an EPUB with the available material.
-4. **Download**: A download button is provided directly in the interface to save the generated `.epub` file.
+## Phase 2: Offline EPUB Conversion & Refined Formatting Pass
+
+The EPUB converter operates **entirely offline** on local files saved in `data/jobs/<job_id>/`, preserving the pristine archived HTML and images so the EPUB can be re-generated at any time:
+
+1. **Archive Integrity Validation**: Click **"🔍 Validate Archive"** to run an offline audit verifying chapter continuity, HTML readability, and asset presence.
+2. **Second-Stage Formatting Refinements (`src/chapter_refiner.py`)**:
+   - **Recurring Banner Removal**: Identifies the recurring ~118 KB WeTriedTLS banner (`ch_*_*.png`) via exact SHA-256 hash (`183e9ae9...`), dimensions (`611x310`), and base64 signature, decomposing it and its empty enclosing tags while preserving legitimate prologue/story illustrations.
+   - **Translator Credits Pruning**: Removes repetitive introductory credit blocks ("WE TRIED TRANSLATIONS", "Translator/Editor: Ryuu", Discord links) and trailing promo snippets without affecting story content.
+   - **Interactive Footnotes**: Transforms in-prose footnote numbers (e.g., `[1]`, `[2]`) into clickable EPUB 3 `<a epub:type="noteref">` links with unique chapter-scoped IDs (avoiding collisions across chapters), and builds a semantic `<section epub:type="footnotes">` with return links (`↩`). Ignores non-footnote numbers in the prose (such as carriage `[3807]`). Supports multiple references to the same footnote in a chapter.
+   - **In-World System Windows**: Converts `+ ... +` blocks (scenarios, character profiles, status messages) into styled, reflowable `.system-window` CSS boxes. Automatically detects window headers (e.g., `<Character Details>`, `<Patron Selection>`), flattens stray container tags inserted by Flamecomics (e.g. `<main>`), and safeguards against unmatched mathematical plus signs.
+   - **Heading Deduplication**: Strips redundant in-body title paragraphs and `◈ Omniscient Reader’s Viewpoint ◈` ornament headers, ensuring each chapter has a single authoritative heading.
+   - **Official Cover Image**: Automatically embeds `cover.webp` (located at workspace root) with `properties="cover-image"` and media-type `image/webp`.
+   - **Dedicated Title Page**: Places a clean, centered title page ("Omniscient Reader's Viewpoint", "Original novel by Sing Shong") as the very first reading document in the spine before Chapter 1, omitting redundant blank cover pages.
+   - **Nested Episode Table of Contents**: Groups chapters hierarchically by episode (e.g. `Prologue: ...`, `Episode 1: ...`, `Episode 2: ...`) in both EPUB 3 Navigation (`nav.xhtml`) and EPUB 2 NCX.
+   - **Responsive Typography & Dark Mode CSS**: Mobile-friendly, reflowable layout with comfortable typography, clear illustration constraints, system window borders, and high-contrast dark mode support.
+3. **Generate & Download**:
+   - Click **"📚 Convert to EPUB"** (or **"🔄 Regenerate EPUB"** to re-apply updated formatting rules).
+   - The verified book is packaged into `output/ORV_Ch<start>-<end>.epub` and available for immediate one-click download.
 
 ---
 

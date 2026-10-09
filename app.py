@@ -184,8 +184,9 @@ with tab_existing:
                     value=False,
                     help="Enable to build EPUB even if some chapters or assets were reported missing.",
                 )
-                if st.button("📚 Convert to EPUB", disabled=is_busy or stats["completed_chapters"] == 0, type="primary"):
-                    ok = job_manager.start_conversion(selected_job_id, force_override=override)
+                btn_label = "🔄 Regenerate EPUB" if stats["epub_ready"] else "📚 Convert to EPUB"
+                if st.button(btn_label, disabled=is_busy or stats["completed_chapters"] == 0, type="primary"):
+                    ok = job_manager.start_conversion(selected_job_id, force_override=override, force_restage=True)
                     if ok:
                         st.success("EPUB conversion initiated!")
                         st.rerun()

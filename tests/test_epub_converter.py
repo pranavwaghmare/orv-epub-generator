@@ -94,6 +94,15 @@ def test_epub_full_conversion(tmp_path: Path, tiny_png_bytes: bytes):
         names = z.namelist()
         assert "mimetype" in names
         assert any("container.xml" in n for n in names)
+        # Check Cover image
+        assert any("cover.webp" in n for n in names)
+        # Check Title page
+        assert any("title_page.xhtml" in n for n in names)
+        tp_item_name = next(n for n in names if "title_page.xhtml" in n)
+        tp_content = z.read(tp_item_name).decode("utf-8")
+        assert "Omniscient Reader’s Viewpoint" in tp_content
+        assert "Sing Shong" in tp_content
+
         # Check XHTML chapters
         assert any("ch_1.xhtml" in n for n in names)
         assert any("ch_2.xhtml" in n for n in names)

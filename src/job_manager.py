@@ -221,7 +221,12 @@ class JobManager:
         self._worker_thread.start()
         return True
 
-    def start_conversion(self, job_id: str, force_override: bool = False) -> bool:
+    def start_conversion(
+        self,
+        job_id: str,
+        force_override: bool = False,
+        force_restage: bool = False,
+    ) -> bool:
         """Launch offline EPUB conversion in background thread."""
         if self.is_busy():
             return False
@@ -247,7 +252,7 @@ class JobManager:
                     on_progress=self._on_worker_progress,
                     should_pause=self._pause_event.is_set,
                 )
-                epub_path = converter.convert(force_override=force_override)
+                epub_path = converter.convert(force_override=force_override, force_restage=force_restage)
                 with self._lock:
                     self._state.logs.append(f"[{self._time_str()}] EPUB generated successfully: {epub_path.name}")
             except Exception as e:

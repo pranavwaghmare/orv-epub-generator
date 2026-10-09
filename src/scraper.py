@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Set
 from urllib.parse import urlparse
 
+from src.chapter_refiner import is_known_recurring_banner
 from src.downloader import Downloader, DownloadError
 from src.manifest import ChapterRecord, ImageRecord, Manifest, utc_now_iso, safe_replace
 from src.parser import (
@@ -37,11 +38,13 @@ class Archiver:
         downloader: Optional[Downloader] = None,
         on_progress: Optional[Callable[[str, float, str], None]] = None,
         should_pause: Optional[Callable[[], bool]] = None,
+        skip_translator_banners: bool = True,
     ):
         self.manifest = manifest
         self.downloader = downloader or Downloader()
         self.on_progress = on_progress or (lambda op, ratio, log: None)
         self.should_pause = should_pause or (lambda: False)
+        self.skip_translator_banners = skip_translator_banners
 
         # Setup directories in job folder
         self.job_dir = manifest.job_dir
@@ -198,15 +201,25 @@ class Archiver:
                     status="pending",
                 )
 
-                ok, err, mime = self.downloader.download_image(img_meta.src, dest_file, base_url=current_url)
-                if ok:
-                    img_rec.status = "completed"
-                    img_rec.mime_type = mime
+                if self.skip_translator_banners and is_known_recurring_banner(img_meta.src):
+                    img_rec.status = "skipped_banner"
+                    img_rec.error = "Identified as recurring translator banner; skipped download per archival configuration."
                     image_map[img_meta.index] = f"../{rel_path}"
+                    self._notify(
+                        f"Skip Banner {img_meta.index}",
+                        progress_ratio,
+                        f"Skipped downloading recurring translator banner #{img_meta.index} for Chapter {format_chapter_display(parsed.chapter_number)}"
+                    )
                 else:
-                    img_rec.status = "failed"
-                    img_rec.error = err
-                    logger.warning("Failed to download image %d for chapter %s: %s", img_meta.index, parsed.chapter_number, err)
+                    ok, err, mime = self.downloader.download_image(img_meta.src, dest_file, base_url=current_url)
+                    if ok:
+                        img_rec.status = "completed"
+                        img_rec.mime_type = mime
+                        image_map[img_meta.index] = f"../{rel_path}"
+                    else:
+                        img_rec.status = "failed"
+                        img_rec.error = err
+                        logger.warning("Failed to download image %d for chapter %s: %s", img_meta.index, parsed.chapter_number, err)
 
                 chapter_rec.images.append(img_rec)
 
