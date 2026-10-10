@@ -9,7 +9,7 @@ import re
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from xml.sax.saxutils import escape
 
 from bs4 import BeautifulSoup
