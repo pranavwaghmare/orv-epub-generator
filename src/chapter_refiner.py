@@ -35,6 +35,25 @@ BANNER_URL_MARKERS = [
 ]
 
 
+def is_horizontal_rule(tag: Optional[Tag]) -> bool:
+    """
+    Return True if the given tag represents any form of horizontal rule.
+    Covers:
+      - bare <hr>
+      - <div data-type="horizontalRule"><hr/></div>  (WeTriedTLS)
+      - any <div> or <p> containing an <hr> but no visible text
+    """
+    if not tag or not getattr(tag, "name", None):
+        return False
+    if tag.name == "hr":
+        return True
+    if str(tag.get("data-type", "")).lower() == "horizontalrule":
+        return True
+    if tag.name in ["div", "p"] and tag.find("hr") and not tag.get_text(strip=True):
+        return True
+    return False
+
+
 def is_known_recurring_banner(source_str: str) -> bool:
     """Identify whether a raw source string or data URI is the recurring translator banner."""
     if not source_str:
@@ -179,37 +198,76 @@ def remove_duplicate_headings(soup: BeautifulSoup, chapter_title: str) -> None:
     """
     Remove in-body duplicate headings and novel title ornaments at the top of the chapter:
       - '◈ Omniscient Reader’s Viewpoint ◈'
-      - 'Chapter X: ...' when it repeats the chapter title already shown in <h1>.
+      - 'Chapter X: ...' / 'Prologue...' / 'Episode N:...' when it repeats the h1 title.
+
+    Scans forward through ALL direct children until it reaches the first substantive story
+    prose (len > 120 chars), so it works even when WeTriedTLS pads 30+ empty paragraphs
+    before the title heading.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
-    ps = [el for el in body.children if getattr(el, "name", None) == "p"][:10]
+    # Build normalised version of the official chapter title for comparison
+    clean_t = re.sub(r'[\s\-_—–:().,\'"\u2018\u2019\u201c\u201d]', '', chapter_title.lower())
+    # Also extract chapter number (if any) for a fast numeric match
+    m_t_num = re.match(r'^(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)', chapter_title, re.IGNORECASE)
+    ch_num_str = m_t_num.group(1) if m_t_num else None
 
-    for el in ps:
+    for el in list(body.children):
+        if not getattr(el, "name", None):
+            continue
+        # Skip dividers and images — they're not title duplicates
+        if is_horizontal_rule(el):
+            continue
+        if el.find("img"):
+            continue
         text = el.get_text(strip=True)
         if not text:
             continue
+        # Once we hit a genuine story paragraph (long prose), stop scanning
+        if len(text) > 120:
+            break
 
-        # Check for book title ornament: ◈ Omniscient Reader’s Viewpoint ◈
-        if "omniscient reader" in text.lower() and ("◈" in text or len(text) < 50):
+        # ── Novel title ornament: ◈ Omniscient Reader’s Viewpoint ◈
+        if "omniscient reader" in text.lower() and ("◈" in text or len(text) < 60):
+            next_sib = el.find_next_sibling()
             el.decompose()
+            # Also strip the horizontalRule that typically follows
+            while next_sib and (
+                is_horizontal_rule(next_sib)
+                or (getattr(next_sib, "name", None) in ["p", "div"] and not next_sib.get_text(strip=True))
+            ):
+                to_del = next_sib
+                next_sib = next_sib.find_next_sibling()
+                to_del.decompose()
             continue
 
-        # Check for chapter title duplicate: e.g. 'Chapter 2: Episode 1 - Launch of the Paywall (1)'
-        if text.lower().startswith("chapter ") or text.lower().startswith("ch. "):
-            # If text matches the start or bulk of chapter_title
-            clean_p = re.sub(r'[\s\-_—–:]', '', text.lower())
-            clean_t = re.sub(r'[\s\-_—–:]', '', chapter_title.lower())
-            if clean_p in clean_t or clean_t in clean_p:
-                # Remove duplicate paragraph and any immediately following divider hr or rule line
+        # ── Chapter title duplicate
+        text_lower = text.lower()
+        is_title_like = any(
+            text_lower.startswith(p)
+            for p in ["chapter ", "ch. ", "prologue", "epilogue", "episode ", "side story"]
+        )
+        if is_title_like:
+            clean_p = re.sub(r'[\s\-_—–:().,\'"\u2018\u2019\u201c\u201d]', '', text_lower)
+            m_p_num = re.match(r'^(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+            p_num_str = m_p_num.group(1) if m_p_num else None
+            # Match either by chapter number or by normalised text similarity
+            num_match = bool(ch_num_str and p_num_str and ch_num_str == p_num_str)
+            text_match = clean_p in clean_t or clean_t in clean_p
+            if num_match or text_match:
                 next_sib = el.find_next_sibling()
                 el.decompose()
-                if next_sib:
-                    if getattr(next_sib, "name", None) == "hr":
-                        next_sib.decompose()
-                    elif getattr(next_sib, "name", None) in ["p", "div"]:
-                        ns_text = next_sib.get_text(strip=True)
-                        if re.match(r'^[\s─━—–\-_=*~·•▪■◆❖]+$', ns_text):
-                            next_sib.decompose()
+                # Strip any trailing dividers/empty nodes left behind
+                while next_sib and (
+                    is_horizontal_rule(next_sib)
+                    or (
+                        getattr(next_sib, "name", None) in ["p", "div"]
+                        and not next_sib.get_text(strip=True)
+                        and not next_sib.find("img")
+                    )
+                ):
+                    to_del = next_sib
+                    next_sib = next_sib.find_next_sibling()
+                    to_del.decompose()
                 break
 
 
@@ -314,10 +372,10 @@ def clean_empty_paragraphs(soup: BeautifulSoup) -> int:
 
 def clean_chapter_intro(soup: BeautifulSoup) -> int:
     """
-    Remove all template dividing lines (<hr>, paragraphs consisting solely of horizontal rules or divider characters)
-    and empty paragraphs between the chapter heading and the first story paragraph.
-    Preserves legitimate volume/chapter illustrations, but strips any
-    dividers before or after them so content flows cleanly.
+    Remove all template dividing lines (<hr>, <div data-type="horizontalRule">, paragraphs
+    consisting solely of horizontal-rule characters) and empty paragraphs at the very start
+    of the chapter body, stopping at the first real story element.
+    Preserves legitimate volume/chapter illustrations.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
     removed = 0
@@ -326,7 +384,7 @@ def clean_chapter_intro(soup: BeautifulSoup) -> int:
     for el in list(body.children):
         if not getattr(el, "name", None):
             continue
-        if el.name == "hr":
+        if is_horizontal_rule(el):
             el.decompose()
             removed += 1
             continue
@@ -458,15 +516,36 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
             else:
                 break
 
+    # Also walk backward from the Footnotes: header and remove any preceding
+    # horizontalRule dividers that WeTriedTLS inserts before the footnote block.
+    if fn_heading_idx is not None:
+        hdr_el = ps[fn_heading_idx]  # already in nodes_to_remove, but may still be in DOM
+        prev = hdr_el.find_previous_sibling() if hdr_el.parent else None
+        while prev and (
+            is_horizontal_rule(prev)
+            or (
+                getattr(prev, "name", None) in ["p", "div"]
+                and not prev.get_text(strip=True)
+                and not prev.find("img")
+            )
+        ):
+            to_del = prev
+            prev = prev.find_previous_sibling()
+            nodes_to_remove.append(to_del)
+
     # Decompose collected trailing nodes (including "Footnotes:" header even if list was empty)
     for node in nodes_to_remove:
-        node.decompose()
+        if node.parent:  # guard: may already be decomposed
+            node.decompose()
 
-    # Remove any trailing <hr> tags at the bottom of the chapter
+    # Remove any trailing horizontal rules and empty nodes at the very end of the chapter body.
+    # This catches <div data-type="horizontalRule"><hr/></div> (WeTriedTLS) as well as bare <hr>.
     for el in reversed(list(body.children)):
         if not getattr(el, "name", None):
             continue
-        if el.name == "hr":
+        if is_horizontal_rule(el):
+            el.decompose()
+        elif el.name in ["p", "div", "br"] and not el.find("img") and not el.get_text(strip=True).replace("\xa0", "").strip():
             el.decompose()
         elif el.get_text(strip=True) or el.find("img"):
             break
@@ -625,11 +704,12 @@ def refine_chapter_html(
     # 2. Remove translator credit blocks & promos
     remove_translator_credits(soup)
 
-    # 3. Fix duplicate chapter headings and ornament paragraphs
-    remove_duplicate_headings(soup, chapter_title)
-
-    # 4. Clean all empty paragraphs throughout the chapter
+    # 3. Clean all empty paragraphs first — WeTriedTLS pads ~30 empty <p> tags before
+    #    the chapter title, so remove_duplicate_headings must run AFTER this step.
     clean_empty_paragraphs(soup)
+
+    # 4. Fix duplicate chapter headings and ornament paragraphs
+    remove_duplicate_headings(soup, chapter_title)
 
     # 5. Clean chapter intro: remove all dividing lines before story prose
     clean_chapter_intro(soup)

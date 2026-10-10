@@ -395,5 +395,84 @@ def test_format_scene_breaks():
         assert not sb.has_attr("style")
 
 
+def test_wetriedtls_duplicate_title_hidden_behind_empty_paragraphs(tmp_path: Path):
+    """
+    WeTriedTLS pads ~30 empty <p> tags between the credits and the chapter title.
+    remove_duplicate_headings() must scan past all empty paragraphs to find and
+    remove the ornament + chapter title, not stop at [:10].
+    """
+    from src.chapter_refiner import refine_chapter_html
+
+    empty_ps = "\n".join(['        <p dir="auto"></p>'] * 30)
+    raw_html = f"""<div class="chapter-body">
+        <p>WE TRIED TRANSLATIONS</p>
+        <p>Translator: ZERO_SUGAR</p>
+        <p>Editor: smol_anon</p>
+        <div data-type="horizontalRule"><hr/></div>
+{empty_ps}
+        <p>\u25c8 Omniscient Reader\u2019s Viewpoint \u25c8</p>
+        <p></p>
+        <p>Chapter 2: Episode 1 - Launch of the Paywall (1)</p>
+        <p></p>
+        <div data-type="horizontalRule"><hr/></div>
+        <p>Story prose begins here. This is the first real sentence of the chapter content.</p>
+    </div>"""
+
+    refined = refine_chapter_html(raw_html, "Chapter 2: Episode 1 - Launch of the Paywall (1)", 2.0, tmp_path)
+    soup = BeautifulSoup(refined, "html.parser")
+
+    all_p_texts = [p.get_text(strip=True) for p in soup.find_all("p")]
+    # Ornament must be gone
+    assert not any("\u25c8" in t and "Omniscient Reader" in t for t in all_p_texts), \
+        "Novel title ornament was not removed"
+    # Chapter title duplicate must be gone
+    assert not any(t.lower().startswith("chapter 2") for t in all_p_texts), \
+        "Duplicate chapter title was not removed"
+    # Story prose must remain
+    assert any("Story prose begins here" in t for t in all_p_texts)
 
 
+def test_wetriedtls_div_horizontal_rule_trailing_white_line(tmp_path: Path):
+    """
+    WeTriedTLS uses <div data-type="horizontalRule"><hr/></div> before the footnotes section.
+    This div must be removed, not left as a trailing white line above footnotes.
+    Also tests that a chapter with no footnotes doesn't leave the div at the bottom.
+    """
+    from src.chapter_refiner import refine_chapter_html, is_horizontal_rule
+
+    # Case A: chapter with footnotes — div before Footnotes: should be removed
+    raw_html_with_fn = """<div class="chapter-body">
+        <p>Story content ends here after a long chapter.</p>
+        <div data-type="horizontalRule"><hr/></div>
+        <p>Footnotes:</p>
+        <p>[1] This is a footnote definition.</p>
+        <p>Join our discord at https://dsc.gg/wetried</p>
+    </div>"""
+
+    refined_with_fn = refine_chapter_html(raw_html_with_fn, "Chapter 7: Episode 2 - Protagonist (1)", 7.0, tmp_path)
+    soup_with_fn = BeautifulSoup(refined_with_fn, "html.parser")
+    body_with_fn = soup_with_fn.find(class_="chapter-body") or soup_with_fn
+
+    for el in body_with_fn.find_all(True):
+        assert not is_horizontal_rule(el), \
+            f"Trailing horizontalRule div not removed (with footnotes case): {el}"
+
+    # Case B: chapter with no footnotes — trailing div should also be gone
+    raw_html_no_fn = """<div class="chapter-body">
+        <p>Story content ends here without any footnotes whatsoever.</p>
+        <div data-type="horizontalRule"><hr/></div>
+        <p>Footnotes:</p>
+        <p>Join our discord at https://dsc.gg/wetried</p>
+    </div>"""
+
+    refined_no_fn = refine_chapter_html(raw_html_no_fn, "Chapter 7: Episode 2 - Protagonist (1)", 7.0, tmp_path)
+    soup_no_fn = BeautifulSoup(refined_no_fn, "html.parser")
+    body_no_fn = soup_no_fn.find(class_="chapter-body") or soup_no_fn
+
+    for el in body_no_fn.find_all(True):
+        assert not is_horizontal_rule(el), \
+            f"Trailing horizontalRule div not removed (no footnotes case): {el}"
+
+    # No footnotes section should be present
+    assert not soup_no_fn.find(class_="chapter-footnotes"), \
+        "Footnote section should not be rendered when there are no footnote definitions"
