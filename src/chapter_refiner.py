@@ -277,11 +277,50 @@ def format_system_windows(soup: BeautifulSoup) -> int:
     return windows_created
 
 
+def clean_empty_paragraphs(soup: BeautifulSoup) -> int:
+    """
+    Remove all empty paragraphs (e.g. <p><br/></p>, <p>&nbsp;</p>, whitespace)
+    throughout the entire chapter body. Paragraph spacing in EPUB must be governed
+    by CSS margins rather than stray empty paragraph tags.
+    """
+    body = soup.find(class_="chapter-body") or soup.body or soup
+    removed = 0
+    for p in list(body.find_all("p")):
+        if not p.find("img") and not p.get_text(strip=True).replace("\xa0", "").strip():
+            p.decompose()
+            removed += 1
+    return removed
+
+
+def clean_chapter_intro(soup: BeautifulSoup) -> int:
+    """
+    Remove all template dividing lines (<hr>) and empty paragraphs
+    between the chapter heading and the first story paragraph.
+    Preserves legitimate volume/chapter illustrations, but strips any
+    dividers before or after them so content flows cleanly.
+    """
+    body = soup.find(class_="chapter-body") or soup.body or soup
+    removed = 0
+    for el in list(body.children):
+        if not getattr(el, "name", None):
+            continue
+        if el.name == "hr":
+            el.decompose()
+            removed += 1
+        elif el.name == "p" and el.get_text(strip=True):
+            # Reached first actual story prose paragraph
+            break
+        elif el.name in ["div", "blockquote"] and "system-window" in el.get("class", []):
+            break
+    return removed
+
+
 def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int:
     """
     Detect footnote references in prose and matching footnote definitions at the bottom.
     Converts references into clickable <a epub:type="noteref"> and builds semantic
-    <section epub:type="footnotes"> with return links.
+    <section epub:type="footnotes"> with return links. Removes any trailing lines or
+    empty "Footnotes" headings if no footnotes exist.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
     ps = body.find_all("p")
@@ -294,46 +333,49 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
             fn_heading_idx = idx
             break
 
-    if fn_heading_idx is None:
-        return 0
-
     # 2. Extract footnote definitions
     fn_defs: Dict[int, str] = {}
-    nodes_to_remove: List[Tag] = [ps[fn_heading_idx]]
+    nodes_to_remove: List[Tag] = []
+    if fn_heading_idx is not None:
+        nodes_to_remove.append(ps[fn_heading_idx])
+        for el in ps[fn_heading_idx + 1:]:
+            t = el.get_text(strip=True)
+            if not t:
+                nodes_to_remove.append(el)
+                continue
+            m = re.match(r'^\[(\d+)\]\s*(.*)$', t)
+            if m:
+                num = int(m.group(1))
+                fn_defs[num] = m.group(2).strip()
+                nodes_to_remove.append(el)
+            elif any(marker in t.lower() for marker in ["dsc.gg", "discord", "we tried"]):
+                nodes_to_remove.append(el)
+            else:
+                break
 
-    for el in ps[fn_heading_idx + 1:]:
-        t = el.get_text(strip=True)
-        if not t:
-            nodes_to_remove.append(el)
+    # Decompose collected trailing nodes (including "Footnotes:" header even if list was empty)
+    for node in nodes_to_remove:
+        node.decompose()
+
+    # Remove any trailing <hr> tags at the bottom of the chapter
+    for el in reversed(list(body.children)):
+        if not getattr(el, "name", None):
             continue
-        m = re.match(r'^\[(\d+)\]\s*(.*)$', t)
-        if m:
-            num = int(m.group(1))
-            fn_defs[num] = m.group(2).strip()
-            nodes_to_remove.append(el)
-        elif any(marker in t.lower() for marker in ["dsc.gg", "discord", "we tried"]):
-            # Trailing promo paragraph after footnotes
-            nodes_to_remove.append(el)
-        else:
-            # If not a footnote, break
+        if el.name == "hr":
+            el.decompose()
+        elif el.get_text(strip=True) or el.find("img"):
             break
 
     if not fn_defs:
         return 0
-
-    # Remove the old raw footnote definition paragraphs from the body
-    for node in nodes_to_remove:
-        node.decompose()
 
     # 3. Find and replace in-prose references [N] where N in fn_defs
     num_str = str(int(chapter_num)) if chapter_num.is_integer() else str(chapter_num)
     ref_counts: Dict[int, int] = {num: 0 for num in fn_defs}
     replaced_count = 0
 
-    # Iterate through prose text nodes
     for text_node in list(body.find_all(string=True)):
         text_str = str(text_node)
-        # Check if any defined footnote number is referenced
         matches = list(re.finditer(r'\[(\d+)\]', text_str))
         if not matches:
             continue
@@ -342,7 +384,6 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
         if not valid_matches:
             continue
 
-        # Rebuild parent with replacement <a> tags
         parent = text_node.parent
         if not parent or parent.name in ["script", "style", "a", "h1", "h2", "h3"]:
             continue
@@ -354,11 +395,9 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
             ref_counts[fn_num] += 1
             occ = ref_counts[fn_num]
 
-            # Text before match
             if m.start() > last_pos:
                 new_contents.append(NavigableString(text_str[last_pos:m.start()]))
 
-            # Create footnote reference link
             a_ref = soup.new_tag(
                 "a",
                 href=f"#fn-ch{num_str}-{fn_num}",
@@ -376,14 +415,10 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
         if last_pos < len(text_str):
             new_contents.append(NavigableString(text_str[last_pos:]))
 
-        # Replace text node in parent
         text_node.replace_with(*new_contents)
 
-    # 4. Construct semantic footnotes section at the bottom
+    # 4. Construct semantic footnotes section without redundant inner hr
     fn_section = soup.new_tag("section", attrs={"class": "chapter-footnotes", "epub:type": "footnotes"})
-    sep = soup.new_tag("hr", attrs={"class": "footnote-separator"})
-    fn_section.append(sep)
-
     title_h2 = soup.new_tag("h2", attrs={"class": "footnotes-title"})
     title_h2.string = "Footnotes"
     fn_section.append(title_h2)
@@ -394,7 +429,6 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
         p_fn = soup.new_tag("p")
         p_fn.string = fn_defs[fn_num] + " "
 
-        # Back-link to first reference
         a_back = soup.new_tag(
             "a",
             href=f"#fnref-ch{num_str}-{fn_num}-1",
@@ -467,10 +501,16 @@ def refine_chapter_html(
     # 3. Fix duplicate chapter headings and ornament paragraphs
     remove_duplicate_headings(soup, chapter_title)
 
-    # 4. Format system windows (+ ... +)
+    # 4. Clean all empty paragraphs throughout the chapter
+    clean_empty_paragraphs(soup)
+
+    # 5. Clean chapter intro: remove all dividing lines before story prose
+    clean_chapter_intro(soup)
+
+    # 6. Format system windows (+ ... +)
     format_system_windows(soup)
 
-    # 5. Format interactive footnotes ([N])
+    # 7. Format interactive footnotes and clean trailing outro / lines
     format_interactive_footnotes(soup, chapter_num)
 
     return str(soup)

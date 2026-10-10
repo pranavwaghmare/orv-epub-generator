@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import shutil
 from pathlib import Path
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 from src.chapter_refiner import is_known_recurring_banner
@@ -52,6 +53,38 @@ class Archiver:
         self.images_dir = self.job_dir / "images"
         self.chapters_dir.mkdir(parents=True, exist_ok=True)
         self.images_dir.mkdir(parents=True, exist_ok=True)
+
+    def _find_cached_chapter(self, current_url: str) -> Optional[Tuple[Path, ChapterRecord]]:
+        """
+        Check if any other job in the jobs directory already has this chapter completed.
+        Returns (other_job_dir, other_chapter_record) if found and files exist on disk.
+        """
+        parent_dir = self.job_dir.parent
+        if not parent_dir.exists():
+            return None
+
+        target_clean = current_url.strip().rstrip("/")
+        for other_dir in parent_dir.iterdir():
+            if other_dir == self.job_dir or not other_dir.is_dir():
+                continue
+            manifest_file = other_dir / "manifest.json"
+            if not manifest_file.exists():
+                continue
+            try:
+                import json
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    mdata = json.load(f)
+                for ch_data in mdata.get("chapters", []):
+                    ch_src = (ch_data.get("source_url") or "").strip().rstrip("/")
+                    if ch_src == target_clean and ch_data.get("status") == "completed":
+                        html_rel = ch_data.get("html_path")
+                        if html_rel:
+                            src_html = other_dir / html_rel
+                            if src_html.exists() and src_html.stat().st_size > 0:
+                                return (other_dir, ChapterRecord.from_dict(ch_data))
+            except Exception:
+                continue
+        return None
 
     def _notify(self, op: str, ratio: float, log_msg: str) -> None:
         logger.info(log_msg)
@@ -108,7 +141,7 @@ class Archiver:
 
             visited_urls.add(current_url)
 
-            # 3. Check if already completed on disk
+            # 3. Check if already completed on disk in current job
             existing_record = next((c for c in self.manifest.chapters if c.source_url == current_url), None)
             if existing_record and existing_record.status == "completed":
                 self._notify(
@@ -123,6 +156,82 @@ class Archiver:
                     self._notify("End of chapters", 1.0, "No next chapter URL available.")
                     break
                 current_url = existing_record.next_url
+                continue
+
+            # 3.5. Check if already completed in another existing job (copy locally to avoid web requests)
+            cached_match = self._find_cached_chapter(current_url)
+            if cached_match:
+                other_dir, other_ch = cached_match
+                if other_ch.chapter_number in seen_chapter_numbers:
+                    err_msg = f"Duplicate chapter number detected from cached job: {other_ch.chapter_number}"
+                    self._record_chapter_failure(current_url, discovery_index, err_msg, other_ch.chapter_number, other_ch.title)
+                    break
+
+                if self.manifest.detected_starting_chapter is None:
+                    self.manifest.detected_starting_chapter = other_ch.chapter_number
+                    self.manifest.save()
+
+                seen_chapter_numbers.add(other_ch.chapter_number)
+                progress_ratio = self._calc_progress(other_ch.chapter_number)
+                self._notify(
+                    f"Reusing Ch {format_chapter_display(other_ch.chapter_number)}",
+                    progress_ratio,
+                    f"Reused {other_ch.title} from existing archive '{other_dir.name}' (copied locally without network fetch)",
+                )
+
+                dest_html_filename = f"chapter_{format_chapter_display(other_ch.chapter_number)}.html"
+                rel_html_path = f"chapters/{dest_html_filename}"
+                dest_html = self.job_dir / rel_html_path
+                src_html = other_dir / other_ch.html_path
+                shutil.copy2(src_html, dest_html)
+
+                new_images = []
+                for img_rec in other_ch.images:
+                    src_img = other_dir / img_rec.local_path
+                    dest_img = self.job_dir / img_rec.local_path
+                    dest_img.parent.mkdir(parents=True, exist_ok=True)
+                    if src_img.exists() and src_img.stat().st_size > 0:
+                        shutil.copy2(src_img, dest_img)
+                    new_images.append(ImageRecord(
+                        index=img_rec.index,
+                        source_url=img_rec.source_url,
+                        local_path=img_rec.local_path,
+                        status=img_rec.status,
+                        mime_type=img_rec.mime_type,
+                        error=img_rec.error,
+                        retry_count=img_rec.retry_count,
+                    ))
+
+                chapter_rec = ChapterRecord(
+                    chapter_number=other_ch.chapter_number,
+                    discovery_index=discovery_index,
+                    title=other_ch.title,
+                    source_url=current_url,
+                    next_url=other_ch.next_url,
+                    status="completed",
+                    html_path=rel_html_path,
+                    images=new_images,
+                    retrieved_at=utc_now_iso(),
+                )
+                self.manifest.add_or_update_chapter(chapter_rec)
+                self.manifest.last_checkpoint = f"archived_ch_{format_chapter_display(other_ch.chapter_number)}"
+                self.manifest.save()
+
+                discovery_index += 1
+
+                if other_ch.chapter_number >= self.manifest.requested_ending_chapter:
+                    self._notify("Target reached", 1.0, f"Reached requested target chapter {self.manifest.requested_ending_chapter}.")
+                    self.manifest.status = "completed"
+                    self.manifest.save()
+                    break
+
+                if not other_ch.next_url:
+                    self._notify("Complete", 1.0, f"No next chapter URL available after Chapter {format_chapter_display(other_ch.chapter_number)}.")
+                    self.manifest.status = "completed"
+                    self.manifest.save()
+                    break
+
+                current_url = other_ch.next_url
                 continue
 
             # 4. Fetch HTML

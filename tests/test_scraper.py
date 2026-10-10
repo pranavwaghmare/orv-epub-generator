@@ -217,3 +217,74 @@ def test_archiver_retry_failed_items(tmp_path: Path, flamecomics_ch1_html: str, 
     # Image should now be completed
     assert ch1.images[0].status == "completed"
     assert (job_dir / "images" / "ch_1_0.png").exists()
+
+
+def test_archiver_reuses_overlapping_chapter_from_other_job(tmp_path: Path):
+    """If another job already archived a chapter, a new job must copy it locally without network fetch."""
+    jobs_dir = tmp_path / "jobs"
+    jobs_dir.mkdir()
+
+    # Setup Job A with completed Chapter 1
+    job_a_dir = jobs_dir / "job_a"
+    (job_a_dir / "chapters").mkdir(parents=True)
+    (job_a_dir / "images").mkdir(parents=True)
+    (job_a_dir / "chapters" / "chapter_1.html").write_text("<p>Chapter 1 text</p>", encoding="utf-8")
+    (job_a_dir / "images" / "ch_1_0.png").write_bytes(b"fake_image_bytes")
+
+    manifest_a = Manifest(
+        job_dir=job_a_dir,
+        job_id="job_a",
+        job_name="Job A",
+        starting_url="https://flamecomics.xyz/novel/8/ch1",
+        requested_ending_chapter=1.0,
+    )
+    ch1 = ChapterRecord(
+        chapter_number=1.0,
+        discovery_index=0,
+        title="Chapter 1: The Start",
+        source_url="https://flamecomics.xyz/novel/8/ch1",
+        next_url="https://flamecomics.xyz/novel/8/ch2",
+        status="completed",
+        html_path="chapters/chapter_1.html",
+        images=[
+            ImageRecord(
+                index=0,
+                source_url="https://example.com/img0.png",
+                local_path="images/ch_1_0.png",
+                status="completed",
+            )
+        ],
+    )
+    manifest_a.add_or_update_chapter(ch1)
+    manifest_a.status = "completed"
+    manifest_a.save()
+
+    # Setup Job B starting at Chapter 1
+    job_b_dir = jobs_dir / "job_b"
+    manifest_b = Manifest(
+        job_dir=job_b_dir,
+        job_id="job_b",
+        job_name="Job B",
+        starting_url="https://flamecomics.xyz/novel/8/ch1",
+        requested_ending_chapter=1.0,
+    )
+    manifest_b.save()
+
+    # Downloader that fails if fetch_html is called for Chapter 1
+    class NetworkForbiddenDownloader(Downloader):
+        def fetch_html(self, url: str) -> str:
+            raise AssertionError(f"Network request attempted for already archived URL: {url}")
+
+    archiver = Archiver(manifest=manifest_b, downloader=NetworkForbiddenDownloader())
+    archiver.run()
+
+    # Job B must have completed Chapter 1 by copying files locally
+    assert manifest_b.status == "completed"
+    assert len(manifest_b.chapters) == 1
+    ch_b = manifest_b.chapters[0]
+    assert ch_b.status == "completed"
+    assert ch_b.chapter_number == 1.0
+    assert (job_b_dir / ch_b.html_path).exists()
+    assert (job_b_dir / ch_b.html_path).read_text(encoding="utf-8") == "<p>Chapter 1 text</p>"
+    assert (job_b_dir / "images" / "ch_1_0.png").exists()
+

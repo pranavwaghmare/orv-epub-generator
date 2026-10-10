@@ -238,3 +238,58 @@ def test_multiple_references_to_same_footnote():
     backrefs = fn_sec.find_all(class_="footnote-backref")
     assert len(backrefs) >= 1
 
+
+def test_clean_empty_paragraphs():
+    from src.chapter_refiner import clean_empty_paragraphs
+    html = """<div class="chapter-body">
+        <p>Paragraph 1</p>
+        <p><br/></p>
+        <p>&nbsp;</p>
+        <p></p>
+        <p>Paragraph 2</p>
+    </div>"""
+    soup = BeautifulSoup(html, "html.parser")
+    removed = clean_empty_paragraphs(soup)
+    assert removed == 3
+    ps = soup.find_all("p")
+    assert len(ps) == 2
+    assert ps[0].get_text() == "Paragraph 1"
+    assert ps[1].get_text() == "Paragraph 2"
+
+
+def test_clean_chapter_intro_and_preserve_volume_cover():
+    from src.chapter_refiner import clean_chapter_intro
+    html = """<div class="chapter-body">
+        <hr/>
+        <figure><img src="cover.png"/></figure>
+        <hr/>
+        <hr/>
+        <p>The story begins here.</p>
+        <p>Second story paragraph.</p>
+    </div>"""
+    soup = BeautifulSoup(html, "html.parser")
+    clean_chapter_intro(soup)
+    # The figure must be preserved, all hr tags before story must be gone
+    assert soup.find("figure") is not None
+    assert len(soup.find_all("hr")) == 0
+    first_p = soup.find("p")
+    assert first_p.get_text() == "The story begins here."
+
+
+def test_footnotes_zero_definitions_removes_heading_and_trailing_lines():
+    html = """<div class="chapter-body">
+        <p>Prose at the end of chapter.</p>
+        <hr/>
+        <p>Footnotes:</p>
+        <p>Join our discord at https://dsc.gg/wetried</p>
+    </div>"""
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_interactive_footnotes(soup, 7.0)
+    assert count == 0
+    # No Footnotes: heading, no section, no trailing hr
+    assert soup.find(class_="chapter-footnotes") is None
+    assert "Footnotes" not in soup.get_text()
+    assert len(soup.find_all("hr")) == 0
+    assert "discord" not in soup.get_text().lower()
+
+

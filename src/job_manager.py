@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -285,6 +286,18 @@ class JobManager:
             # Cap log buffer to recent 200 items
             if len(self._state.logs) > 200:
                 self._state.logs = self._state.logs[-200:]
+
+    def delete_job(self, job_id: str) -> bool:
+        """Permanently delete a job directory and its contents from disk."""
+        with self._lock:
+            if self._state.is_running and self._state.job_id == job_id:
+                return False
+
+        job_dir = self.base_jobs_dir / job_id
+        if job_dir.exists() and job_dir.is_dir():
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return True
+        return False
 
     @staticmethod
     def _time_str() -> str:

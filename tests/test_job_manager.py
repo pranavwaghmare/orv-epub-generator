@@ -46,3 +46,20 @@ def test_job_manager_background_archival(tmp_path: Path, flamecomics_ch1_html: s
         reloaded = manager.get_job(job.job_id)
         assert reloaded.status == "completed"
         assert len(reloaded.chapters) == 1
+
+
+def test_job_manager_delete_job(tmp_path: Path):
+    manager = JobManager(base_jobs_dir=tmp_path)
+    job = manager.create_job(
+        starting_url="https://flamecomics.xyz/novel/8/start",
+        ending_chapter=1.0,
+        job_name="Job to Delete",
+    )
+    job_dir = tmp_path / job.job_id
+    assert job_dir.exists()
+
+    # Successfully delete idle job
+    ok = manager.delete_job(job.job_id)
+    assert ok is True
+    assert not job_dir.exists()
+    assert manager.get_job(job.job_id) is None

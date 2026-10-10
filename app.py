@@ -15,10 +15,10 @@ st.set_page_config(
     page_title="ORV Archiver & EPUB Generator",
     page_icon="📖",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# Custom CSS for polished typography and readability
+# Custom CSS for clean typography and layout
 st.markdown(
     """
     <style>
@@ -26,12 +26,7 @@ st.markdown(
         font-size: 2.2rem;
         font-weight: 700;
         color: #1E3A8A;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 1.05rem;
-        color: #4B5563;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.0rem;
     }
     .metric-card {
         background-color: #F3F4F6;
@@ -71,48 +66,89 @@ def get_job_manager(base_dir: str = "data/jobs") -> JobManager:
 
 job_manager = get_job_manager()
 
-
-# Sidebar: App info & stats
-with st.sidebar:
-    st.markdown("### 📖 ORV Archiver")
-    st.markdown(
-        """
-        **Omniscient Reader's Viewpoint**
-        Flamecomics (WeTriedTLS) Archiver & EPUB Generator.
-        
-        - **Phase 1**: HTML & inline illustration archival.
-        - **Phase 2**: Offline EPUB compilation.
-        - **Resumable**: Persistent manifests with atomic state checkpoints.
-        """
-    )
-    st.divider()
-    jobs = job_manager.list_jobs()
-    st.metric("Total Jobs", len(jobs))
-    busy = job_manager.is_busy()
-    if busy:
-        st.info("⚡ Background Worker Active")
-    else:
-        st.caption("Worker Status: Idle")
-
-
-# Header
+# Header: Title only
 st.markdown('<div class="main-header">Omniscient Reader\'s Viewpoint — Archiver & EPUB Generator</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-header">Archive chapters from Flamecomics and convert saved content into standard EPUBs with inline illustrations.</div>',
-    unsafe_allow_html=True,
-)
 
-# Tab Navigation
-tab_existing, tab_new = st.tabs(["📂 Existing Jobs & Conversion", "🚀 Start New Archival Job"])
+# Tab Navigation: "Start New Archival Job" is first, "Existing Jobs & Conversion" is second
+tab_new, tab_existing = st.tabs(["🚀 Start New Archival Job", "📂 Existing Jobs & Conversion"])
 
 
 # ==========================================
-# TAB 1: EXISTING JOBS & EPUB CONVERSION
+# TAB 1: START NEW ARCHIVAL JOB
+# ==========================================
+with tab_new:
+    st.markdown("#### Configure New Archival Job")
+    
+    with st.form("new_job_form"):
+        starting_url = st.text_input(
+            "Starting Chapter URL *",
+            value="https://flamecomics.xyz/novel/8/580e7d866052dfd8",
+            help="Example: https://flamecomics.xyz/novel/8/580e7d866052dfd8",
+        )
+        col_form1, col_form2 = st.columns(2)
+        with col_form1:
+            ending_chapter = st.number_input(
+                "Requested Ending Chapter Number *",
+                min_value=1.0,
+                max_value=1000.0,
+                value=10.0,
+                step=1.0,
+                help="Archival automatically stops upon completing this chapter number.",
+            )
+        with col_form2:
+            custom_job_name = st.text_input(
+                "Custom Job Name (optional)",
+                placeholder="e.g. ORV Volume 1",
+                help="Leave blank to use an automatic descriptive slug.",
+            )
+
+        submit_new_job = st.form_submit_button("🚀 Start Archival Job", type="primary")
+
+    # Proactive starting URL inspection
+    st.divider()
+    st.markdown("##### 🔍 Inspect Starting Chapter Before Archiving")
+    inspect_url = st.text_input("Enter URL to test connectivity and extract starting title:", value=starting_url, key="inspect_input")
+    if st.button("Probe Starting Chapter"):
+        with st.spinner("Connecting to Flamecomics..."):
+            detected_num, detected_title, inspect_err = job_manager.inspect_starting_url(inspect_url.strip())
+            if inspect_err:
+                st.error(f"Inspection error: {inspect_err}")
+            else:
+                st.success(f"Successfully reached Flamecomics! Detected Chapter **{format_chapter_display(detected_num)}**: *{detected_title}*")
+
+    if submit_new_job:
+        if not starting_url.strip():
+            st.error("Please enter a valid starting chapter URL.")
+        elif job_manager.is_busy():
+            st.warning("Worker is currently busy with another operation. Please wait or pause the current job.")
+        else:
+            with st.spinner("Validating starting chapter and initializing job..."):
+                # Probe starting URL
+                ch_num, ch_title, err = job_manager.inspect_starting_url(starting_url.strip())
+                if err:
+                    st.error(f"Cannot start job: starting chapter URL inspection failed ({err}).")
+                elif ch_num is not None and ending_chapter < ch_num:
+                    st.error(f"Invalid range: Requested ending chapter ({format_chapter_display(ending_chapter)}) is earlier than detected starting chapter ({format_chapter_display(ch_num)}).")
+                else:
+                    new_manifest = job_manager.create_job(
+                        starting_url=starting_url.strip(),
+                        ending_chapter=ending_chapter,
+                        detected_starting_chapter=ch_num,
+                        job_name=custom_job_name.strip() if custom_job_name else None,
+                    )
+                    st.success(f"Created Job `{new_manifest.job_name}`! Starting background archival...")
+                    job_manager.start_archival(new_manifest.job_id)
+                    time.sleep(0.5)
+                    st.rerun()
+
+
+# ==========================================
+# TAB 2: EXISTING JOBS & EPUB CONVERSION
 # ==========================================
 with tab_existing:
     jobs = job_manager.list_jobs()
     if not jobs:
-        st.info("No jobs found yet. Switch to the **'Start New Archival Job'** tab to begin.")
+        st.info("No jobs found yet. Use the **'Start New Archival Job'** tab to begin.")
     else:
         job_options = {f"{m.job_name} ({m.job_id})": m.job_id for m in jobs}
         selected_label = st.selectbox("Select Job to View / Manage:", list(job_options.keys()))
@@ -152,25 +188,25 @@ with tab_existing:
 
             with t_col1:
                 if manifest.status in ["paused", "failed", "pending", "in_progress"]:
-                    if st.button("▶️ Resume Archival", disabled=is_busy, use_container_width=True):
+                    if st.button("▶️ Resume Archival", disabled=is_busy, width="stretch"):
                         job_manager.start_archival(selected_job_id)
                         st.rerun()
                 else:
-                    st.button("✅ Archival Complete", disabled=True, use_container_width=True)
+                    st.button("✅ Archival Complete", disabled=True, width="stretch")
 
             with t_col2:
                 has_failures = stats["failed_chapters"] > 0 or stats["failed_images"] > 0
-                if st.button("🔄 Retry Failed", disabled=is_busy or not has_failures, use_container_width=True):
+                if st.button("🔄 Retry Failed", disabled=is_busy or not has_failures, width="stretch"):
                     job_manager.retry_failed(selected_job_id)
                     st.rerun()
 
             with t_col3:
-                if st.button("⏸️ Pause", disabled=not is_busy, use_container_width=True):
+                if st.button("⏸️ Pause", disabled=not is_busy, width="stretch"):
                     job_manager.request_pause()
                     st.warning("Pause requested. The active step will conclude safely.")
 
             with t_col4:
-                if st.button("🔍 Validate Archive", use_container_width=True):
+                if st.button("🔍 Validate Archive", width="stretch"):
                     st.session_state[f"show_validation_{selected_job_id}"] = True
 
             # EPUB Conversion Section
@@ -204,7 +240,7 @@ with tab_existing:
                             data=epub_bytes,
                             file_name=epub_path.name,
                             mime="application/epub+zip",
-                            use_container_width=True,
+                            width="stretch",
                         )
                         st.caption(f"Size: {len(epub_bytes) / 1024 / 1024:.2f} MB | Saved at `{epub_path}`")
 
@@ -231,89 +267,23 @@ with tab_existing:
                             "Images": f"{sum(1 for i in c.images if i.status == 'completed')}/{len(c.images)}",
                             "Error": c.error or "",
                         })
-                    st.dataframe(ch_data, use_container_width=True)
+                    st.dataframe(ch_data, width="stretch")
                 else:
                     st.write("No chapters discovered yet.")
 
-
-# ==========================================
-# TAB 2: START NEW ARCHIVAL JOB
-# ==========================================
-with tab_new:
-    st.markdown("#### Configure New Archival Job")
-    
-    with st.form("new_job_form"):
-        starting_url = st.text_input(
-            "Starting Chapter URL *",
-            value="https://flamecomics.xyz/novel/8/580e7d866052dfd8",
-            help="Example: https://flamecomics.xyz/novel/8/580e7d866052dfd8",
-        )
-        col_end, col_name = st.columns([1, 2])
-        with col_end:
-            ending_chapter = st.number_input(
-                "Ending Chapter Number *",
-                min_value=1.0,
-                max_value=2000.0,
-                value=5.0,
-                step=1.0,
-                format="%.1f",
-            )
-        with col_name:
-            custom_job_name = st.text_input(
-                "Optional Job Name",
-                placeholder="e.g. ORV Prologue & Episode 1",
-            )
-        
-        col_out, _ = st.columns([2, 1])
-        with col_out:
-            output_dir = st.text_input(
-                "Jobs Output Directory",
-                value="data/jobs",
-                help="Base directory where job folders and manifests are isolated.",
-            )
-
-        f_col1, f_col2 = st.columns([1, 1])
-        with f_col1:
-            inspect_pressed = st.form_submit_button("🔍 Inspect Starting Chapter")
-        with f_col2:
-            start_pressed = st.form_submit_button("🚀 Start Archival Job", type="primary")
-
-    # Handle Inspect
-    if inspect_pressed:
-        if not starting_url.strip():
-            st.error("Please provide a starting chapter URL.")
-        else:
-            with st.spinner("Connecting to Flamecomics and inspecting starting chapter..."):
-                ch_num, ch_title, err = job_manager.inspect_starting_url(starting_url.strip())
-                if err:
-                    st.error(f"Failed to inspect page: {err}")
-                else:
-                    st.success(f"Inspection successful!\n- **Detected Chapter**: Chapter {format_chapter_display(ch_num or 0.0)}\n- **Title**: {ch_title}")
-                    st.session_state["inspected_start_ch"] = ch_num
-
-    # Handle Start Job
-    if start_pressed:
-        if not starting_url.strip():
-            st.error("Starting chapter URL is required.")
-        else:
-            with st.spinner("Validating and creating job..."):
-                # Probe starting URL
-                ch_num, ch_title, err = job_manager.inspect_starting_url(starting_url.strip())
-                if err:
-                    st.error(f"Cannot start job: starting chapter URL inspection failed ({err}).")
-                elif ch_num is not None and ending_chapter < ch_num:
-                    st.error(f"Invalid range: Requested ending chapter ({format_chapter_display(ending_chapter)}) is earlier than detected starting chapter ({format_chapter_display(ch_num)}).")
-                else:
-                    new_manifest = job_manager.create_job(
-                        starting_url=starting_url.strip(),
-                        ending_chapter=ending_chapter,
-                        detected_starting_chapter=ch_num,
-                        job_name=custom_job_name.strip() if custom_job_name else None,
-                    )
-                    st.success(f"Created Job `{new_manifest.job_name}`! Starting background archival...")
-                    job_manager.start_archival(new_manifest.job_id)
-                    time.sleep(0.5)
-                    st.rerun()
+            # Delete Job Section
+            st.divider()
+            with st.expander("🗑️ Delete Job & Local Files", expanded=False):
+                st.warning(f"This will permanently delete the job **{manifest.job_name}** (`{selected_job_id}`) and all archived HTML, images, and EPUB files from your computer.")
+                confirm_del = st.checkbox("Yes, I understand and want to permanently delete this job", key=f"del_confirm_{selected_job_id}")
+                if st.button("🗑️ Permanently Delete Job", disabled=is_busy or not confirm_del, type="secondary", width="stretch"):
+                    ok = job_manager.delete_job(selected_job_id)
+                    if ok:
+                        st.success(f"Job '{selected_job_id}' has been permanently deleted.")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Cannot delete a job while it is actively running.")
 
 
 # ==========================================

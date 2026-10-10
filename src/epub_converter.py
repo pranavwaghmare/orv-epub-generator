@@ -41,18 +41,19 @@ body {
 /* Chapter Heading */
 h1.chapter-title {
     text-align: center;
-    margin-top: 1.8em;
-    margin-bottom: 1.8em;
-    font-size: 1.45em;
+    margin-top: 1.2em;
+    margin-bottom: 1.2em;
+    font-size: 1.4em;
     line-height: 1.35;
     font-weight: bold;
     border-bottom: 1px solid #e2e8f0;
-    padding-bottom: 0.6em;
+    padding-bottom: 0.5em;
 }
 
 p {
     margin-top: 0;
-    margin-bottom: 0.85em;
+    margin-bottom: 0.55em;
+    line-height: 1.6;
     text-indent: 0;
 }
 
@@ -61,25 +62,25 @@ img {
     max-width: 100%;
     height: auto;
     display: block;
-    margin: 1.5em auto;
+    margin: 0.6em auto;
     border-radius: 4px;
 }
 
 figure {
-    margin: 1.5em 0;
+    margin: 0.8em 0;
     text-align: center;
 }
 
 hr {
     border: none;
-    border-top: 1px solid #cbd5e0;
-    margin: 2em auto;
+    border-top: 1px solid #e2e8f0;
+    margin: 1.5em auto;
     width: 60%;
 }
 
 blockquote {
     border-left: 3px solid #718096;
-    margin: 1.2em 0;
+    margin: 1.0em 0;
     padding-left: 1em;
     font-style: italic;
     color: #4a5568;
@@ -129,8 +130,8 @@ blockquote {
 
 /* In-World System Windows (+ ... +) */
 .system-window {
-    margin: 1.6em 0;
-    padding: 1.1em 1.3em;
+    margin: 0.8em 0;
+    padding: 0.8em 1.1em;
     border: 1.5px solid #4a5568;
     border-radius: 6px;
     background-color: #f7fafc;
@@ -141,17 +142,17 @@ blockquote {
 
 .system-window-header {
     font-weight: bold;
-    font-size: 1.05em;
-    margin-bottom: 0.8em;
+    font-size: 1.0em;
+    margin-bottom: 0.4em;
     text-align: center;
     border-bottom: 1px dashed #718096;
-    padding-bottom: 0.45em;
+    padding-bottom: 0.3em;
     letter-spacing: 0.04em;
     color: #2d3748;
 }
 
 .system-window p {
-    margin: 0.35em 0;
+    margin: 0.22em 0;
     text-indent: 0;
 }
 
@@ -169,16 +170,17 @@ a.noteref sup {
 }
 
 .chapter-footnotes {
-    margin-top: 2.8em;
-    padding-top: 1em;
+    margin-top: 1.8em;
+    padding-top: 0.8em;
     font-size: 0.9em;
-    border-top: 1px solid #cbd5e0;
+    border-top: 1px solid #e2e8f0;
 }
 
 .footnotes-title {
-    font-size: 1.1em;
+    font-size: 1.05em;
     font-weight: bold;
-    margin-bottom: 0.8em;
+    margin-top: 0;
+    margin-bottom: 0.5em;
     color: #4a5568;
 }
 
@@ -188,7 +190,7 @@ a.noteref sup {
 }
 
 .footnote {
-    margin-bottom: 0.5em;
+    margin-bottom: 0.35em;
     line-height: 1.45;
 }
 
