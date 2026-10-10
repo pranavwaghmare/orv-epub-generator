@@ -365,7 +365,12 @@ class EpubConverter:
         
         start_ch = format_chapter_display(completed_chapters[0].chapter_number)
         end_ch = format_chapter_display(completed_chapters[-1].chapter_number)
-        book_title = f"Omniscient Reader's Viewpoint (Chapters {start_ch}-{end_ch})"
+
+        # Check if job contains Chapter 552 and beyond (Omniscient Reader's Viewpoint: Side Story)
+        is_side_story = any(ch.chapter_number >= 552.0 for ch in completed_chapters)
+        main_title = "Omniscient Reader’s Viewpoint: Side Story" if is_side_story else "Omniscient Reader’s Viewpoint"
+        series_name = "Omniscient Reader's Viewpoint: Side Story" if is_side_story else "Omniscient Reader's Viewpoint"
+        book_title = f"{series_name} (Chapters {start_ch}-{end_ch})"
 
         book = epub.EpubBook()
         book.set_identifier(f"orv-flamecomics-{self.manifest.job_id}")
@@ -375,24 +380,41 @@ class EpubConverter:
         book.add_metadata("DC", "contributor", "WeTriedTLS / Flamecomics")
 
         # Cover Image Registration
-        candidates = [
-            Path("cover.webp"),
-            Path(__file__).resolve().parent.parent / "cover.webp",
-            Path("/orv-flamecomics/cover.webp"),
-        ]
-        cover_path = next((p for p in candidates if p.exists()), None)
+        if is_side_story:
+            cover_candidates = [
+                Path("coverss.jpg"),
+                Path(__file__).resolve().parent.parent / "coverss.jpg",
+                Path("/orv-flamecomics/coverss.jpg"),
+                Path("cover.webp"),
+                Path(__file__).resolve().parent.parent / "cover.webp",
+                Path("/orv-flamecomics/cover.webp"),
+            ]
+        else:
+            cover_candidates = [
+                Path("cover.webp"),
+                Path(__file__).resolve().parent.parent / "cover.webp",
+                Path("/orv-flamecomics/cover.webp"),
+            ]
+
+        cover_path = next((p for p in cover_candidates if p.exists()), None)
         if not cover_path:
+            expected_name = "coverss.jpg" if is_side_story else "cover.webp"
             raise EpubConversionError(
-                "Cover image not found at '/orv-flamecomics/cover.webp' or workspace root. "
-                "Please ensure cover.webp exists."
+                f"Cover image not found ({expected_name}) at workspace root or '/orv-flamecomics/'. "
+                f"Please ensure {expected_name} exists."
             )
 
         with open(cover_path, "rb") as f:
             cover_data = f.read()
-        book.set_cover("images/cover.webp", cover_data, create_page=False)
+
+        cover_ext = cover_path.suffix.lower()
+        cover_epub_rel = f"images/cover{cover_ext}"
+        cover_mime = self._guess_mime(cover_path)
+
+        book.set_cover(cover_epub_rel, cover_data, create_page=False)
         cover_item = book.get_item_with_id("cover-img")
         if cover_item:
-            cover_item.media_type = "image/webp"
+            cover_item.media_type = cover_mime
 
         # Add CSS
         style_item = epub.EpubItem(
@@ -416,7 +438,7 @@ class EpubConverter:
             book.add_item(img_item)
 
         # Create Dedicated Title Page as First Reading Item
-        title_page_item = self._create_title_page(style_item, start_ch, end_ch)
+        title_page_item = self._create_title_page(style_item, start_ch, end_ch, main_title)
         book.add_item(title_page_item)
 
         # Add XHTML Chapters
@@ -539,7 +561,13 @@ class EpubConverter:
         with open(target_xhtml_path, "w", encoding="utf-8") as f:
             f.write(xhtml_content)
 
-    def _create_title_page(self, style_item: epub.EpubItem, start_ch: str = "", end_ch: str = "") -> epub.EpubHtml:
+    def _create_title_page(
+        self,
+        style_item: epub.EpubItem,
+        start_ch: str = "",
+        end_ch: str = "",
+        main_title: str = "Omniscient Reader’s Viewpoint",
+    ) -> epub.EpubHtml:
         """Create a dedicated, clean, centered Title Page as the first reading document."""
         range_html = f'<p class="title-page-range">Chapters {escape(start_ch)}–{escape(end_ch)}</p>' if start_ch and end_ch else ""
         title_page_html = f"""<!DOCTYPE html>
@@ -550,7 +578,7 @@ class EpubConverter:
 </head>
 <body class="title-page-body">
     <div class="title-page-container">
-        <h1 class="title-page-title">Omniscient Reader’s Viewpoint</h1>
+        <h1 class="title-page-title">{escape(main_title)}</h1>
         {range_html}
         <div class="title-page-divider"></div>
         <p class="title-page-author">Original novel by Sing Shong</p>

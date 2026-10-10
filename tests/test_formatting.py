@@ -187,7 +187,9 @@ def test_extract_episode_group():
     assert extract_episode_group("Chapter 6: Episode 1 - Launch of the Paywall (5)") == "Episode 1: Launch of the Paywall"
     assert extract_episode_group("Chapter 7: Episode 2 - Protagonist (1)") == "Episode 2: Protagonist"
     assert extract_episode_group("Chapter 166: Episode 32 — Kim Dokja's Love (3)") == "Episode 32: Kim Dokja's Love"
-    assert extract_episode_group("Side Story: The Beginning") == "Chapters"
+    assert extract_episode_group("Side Story: The Beginning") == "Side Story: The Beginning"
+    assert extract_episode_group("Chapter 552: Side Story 1 - The World After the Fall (1)") == "Side Story 1: The World After the Fall"
+    assert extract_episode_group("Special Note: Author Afterword") == "Chapters"
 
 
 def test_system_window_unwraps_stray_containers():

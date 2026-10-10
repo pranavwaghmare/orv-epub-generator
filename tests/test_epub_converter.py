@@ -218,3 +218,64 @@ def test_epub_resumable_staging(tmp_path: Path):
         ch1_item_name = next(n for n in z.namelist() if "ch_1.xhtml" in n)
         content = z.read(ch1_item_name).decode("utf-8")
         assert "Pre-staged Ch 1" in content
+
+
+def test_epub_side_story_cover_and_title(tmp_path: Path):
+    """Jobs containing chapter 552 and beyond must use coverss.jpg and Side Story branding."""
+    job_dir = tmp_path / "side_story_job"
+    chapters_dir = job_dir / "chapters"
+    chapters_dir.mkdir(parents=True)
+
+    (chapters_dir / "chapter_552.html").write_text("<p>Side story begins.</p>", encoding="utf-8")
+    (chapters_dir / "chapter_553.html").write_text("<p>Side story continues.</p>", encoding="utf-8")
+
+    manifest = Manifest(
+        job_dir=job_dir,
+        job_id="side_story_job",
+        job_name="Side Story Job",
+        starting_url="https://flamecomics.xyz/novel/8/552",
+        requested_ending_chapter=553.0,
+        detected_starting_chapter=552.0,
+    )
+    ch552 = ChapterRecord(
+        chapter_number=552.0,
+        discovery_index=0,
+        title="Chapter 552: Side Story 1",
+        source_url="https://flamecomics.xyz/novel/8/552",
+        status="completed",
+        html_path="chapters/chapter_552.html",
+    )
+    ch553 = ChapterRecord(
+        chapter_number=553.0,
+        discovery_index=1,
+        title="Chapter 553: Side Story 2",
+        source_url="https://flamecomics.xyz/novel/8/553",
+        status="completed",
+        html_path="chapters/chapter_553.html",
+    )
+    manifest.add_or_update_chapter(ch552)
+    manifest.add_or_update_chapter(ch553)
+    manifest.save()
+
+    converter = EpubConverter(manifest=manifest)
+    epub_path = converter.convert(force_override=False)
+
+    assert epub_path.exists()
+    assert "ORV_Ch552-553.epub" in epub_path.name
+
+    with zipfile.ZipFile(epub_path, "r") as z:
+        names = z.namelist()
+        # Verify cover image is cover.jpg or coverss (since coverss.jpg was used)
+        assert any("cover.jpg" in n for n in names)
+
+        # Verify Title page contains Side Story title
+        tp_item_name = next(n for n in names if "title_page.xhtml" in n)
+        tp_content = z.read(tp_item_name).decode("utf-8")
+        assert "Omniscient Reader’s Viewpoint: Side Story" in tp_content
+        assert "Chapters 552–553" in tp_content
+
+        # Verify OPF metadata contains Side Story in title
+        opf_name = next(n for n in names if n.endswith(".opf"))
+        opf_content = z.read(opf_name).decode("utf-8")
+        assert "Omniscient Reader's Viewpoint: Side Story (Chapters 552-553)" in opf_content
+

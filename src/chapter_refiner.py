@@ -528,7 +528,20 @@ def extract_episode_group(chapter_title: str) -> str:
         e_name = m.group(1)
         return f"Epilogue: {e_name.strip()}" if e_name else "Epilogue"
 
-    # Pattern D: Fallback for other chapter titles
+    # Pattern D: Side Story [N] - Name (Part)
+    m = re.match(r'^Side\s*Story(?:\s+(\d+))?(?:\s*[:\-—–]\s*(.*?))?(?:\s*\(\d+\))?\s*$', t_clean, re.IGNORECASE)
+    if m:
+        ss_num = m.group(1)
+        ss_name = (m.group(2) or "").strip()
+        if ss_num and ss_name:
+            return f"Side Story {ss_num}: {ss_name}"
+        elif ss_num:
+            return f"Side Story {ss_num}"
+        elif ss_name:
+            return f"Side Story: {ss_name}"
+        return "Side Story"
+
+    # Pattern E: Fallback for other chapter titles
     return "Chapters"
 
 
