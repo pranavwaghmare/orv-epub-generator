@@ -293,3 +293,38 @@ def test_footnotes_zero_definitions_removes_heading_and_trailing_lines():
     assert "discord" not in soup.get_text().lower()
 
 
+def test_footnote_preserves_formatting_tags_and_prevents_stuck_words():
+    """Footnote definitions must preserve <strong>/<em> tags and not stick words together."""
+    html = """<div class="chapter-body">
+        <p>A dokkaebi[1] appeared before Cheolsu hyung[2].</p>
+        <p>Footnotes:</p>
+        <p>[1] <strong>Dokkaebi</strong> or dogkagkwi (Korean: 도깨비) are mythical creatures.</p>
+        <p>[2] The Korean word <strong>hyung</strong> (형) is an honorific.</p>
+    </div>"""
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_interactive_footnotes(soup, 3.0)
+    assert count == 2
+
+    fn_sec = soup.find(class_="chapter-footnotes")
+    assert fn_sec is not None
+    items = fn_sec.find_all("li")
+    assert len(items) == 2
+
+    # Check that strong tags are preserved
+    assert items[0].find("strong") is not None
+    assert items[0].find("strong").get_text() == "Dokkaebi"
+    assert items[1].find("strong") is not None
+    assert items[1].find("strong").get_text() == "hyung"
+
+    # Crucially verify words are NOT stuck together
+    item0_text = items[0].get_text()
+    assert "Dokkaebior" not in item0_text
+    assert "Dokkaebi or" in item0_text
+
+    item1_text = items[1].get_text()
+    assert "wordhung" not in item1_text
+    assert "wordhyung" not in item1_text
+    assert "word hyung (형)" in item1_text
+
+
+

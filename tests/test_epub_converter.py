@@ -102,6 +102,16 @@ def test_epub_full_conversion(tmp_path: Path, tiny_png_bytes: bytes):
         tp_content = z.read(tp_item_name).decode("utf-8")
         assert "Omniscient Reader’s Viewpoint" in tp_content
         assert "Sing Shong" in tp_content
+        assert "Chapters 1–2" in tp_content
+
+        # Verify Title page precedes TOC ('nav') in spine
+        opf_name = next(n for n in names if n.endswith(".opf"))
+        opf_content = z.read(opf_name).decode("utf-8")
+        spine_match = opf_content[opf_content.find("<spine"):opf_content.find("</spine>")]
+        tp_pos = spine_match.find("title_page")
+        nav_pos = spine_match.find("nav")
+        assert tp_pos != -1 and nav_pos != -1
+        assert tp_pos < nav_pos
 
         # Check XHTML chapters
         assert any("ch_1.xhtml" in n for n in names)

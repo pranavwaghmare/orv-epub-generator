@@ -315,12 +315,39 @@ def clean_chapter_intro(soup: BeautifulSoup) -> int:
     return removed
 
 
+def fix_inline_tag_spacing(container: Tag) -> None:
+    """
+    Ensure spaces exist around inline tags (<strong>, <b>, <em>, <i>, <span>)
+    if they directly touch neighboring alphanumeric characters without whitespace.
+    Prevents formatting tags from sticking to adjacent text (e.g. 'dokkaebior', 'wordhung').
+    """
+    for tag in container.find_all(["strong", "b", "em", "i", "span"]):
+        # Check previous sibling
+        prev_s = tag.previous_sibling
+        if isinstance(prev_s, NavigableString):
+            if prev_s and re.search(r'\w$', prev_s) and re.match(r'^\w', tag.get_text()):
+                tag.insert_before(" ")
+        elif isinstance(prev_s, Tag) and prev_s.name in ["strong", "b", "em", "i", "span"]:
+            if re.search(r'\w$', prev_s.get_text()) and re.match(r'^\w', tag.get_text()):
+                tag.insert_before(" ")
+
+        # Check next sibling
+        next_s = tag.next_sibling
+        if isinstance(next_s, NavigableString):
+            if next_s and re.match(r'^\w', next_s) and re.search(r'\w$', tag.get_text()):
+                tag.insert_after(" ")
+        elif isinstance(next_s, Tag) and next_s.name in ["strong", "b", "em", "i", "span"]:
+            if re.search(r'\w$', tag.get_text()) and re.match(r'^\w', next_s.get_text()):
+                tag.insert_after(" ")
+
+
 def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int:
     """
     Detect footnote references in prose and matching footnote definitions at the bottom.
     Converts references into clickable <a epub:type="noteref"> and builds semantic
     <section epub:type="footnotes"> with return links. Removes any trailing lines or
-    empty "Footnotes" headings if no footnotes exist.
+    empty "Footnotes" headings if no footnotes exist. Preserves bold/italic markup
+    inside definitions and ensures words do not stick to inline tags.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
     ps = body.find_all("p")
@@ -339,16 +366,33 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
     if fn_heading_idx is not None:
         nodes_to_remove.append(ps[fn_heading_idx])
         for el in ps[fn_heading_idx + 1:]:
-            t = el.get_text(strip=True)
-            if not t:
+            raw_text = el.get_text()
+            if not raw_text.strip():
                 nodes_to_remove.append(el)
                 continue
-            m = re.match(r'^\[(\d+)\]\s*(.*)$', t)
+            m = re.match(r'^\s*\[(\d+)\]', raw_text)
             if m:
                 num = int(m.group(1))
-                fn_defs[num] = m.group(2).strip()
+                # Decode inner HTML preserving formatting tags (strong, em, etc.)
+                el_html = el.decode_contents().strip()
+                def_html = re.sub(
+                    r'^(?:<(?:strong|b)>)?\s*\[\d+\]\s*(?:</(?:strong|b)>)?\s*[:.\-–—]?\s*',
+                    '',
+                    el_html,
+                    count=1
+                ).strip()
+
+                # Fix any stuck inline spacing in the definition
+                frag_soup = BeautifulSoup(f"<span>{def_html}</span>", "html.parser")
+                span_frag = frag_soup.find("span")
+                if span_frag:
+                    fix_inline_tag_spacing(span_frag)
+                    fn_defs[num] = span_frag.decode_contents().strip()
+                else:
+                    fn_defs[num] = def_html
+
                 nodes_to_remove.append(el)
-            elif any(marker in t.lower() for marker in ["dsc.gg", "discord", "we tried"]):
+            elif any(marker in raw_text.lower() for marker in ["dsc.gg", "discord", "we tried"]):
                 nodes_to_remove.append(el)
             else:
                 break
@@ -427,7 +471,13 @@ def format_interactive_footnotes(soup: BeautifulSoup, chapter_num: float) -> int
     for fn_num in sorted(fn_defs.keys()):
         li = soup.new_tag("li", id=f"fn-ch{num_str}-{fn_num}", attrs={"class": "footnote", "epub:type": "footnote"})
         p_fn = soup.new_tag("p")
-        p_fn.string = fn_defs[fn_num] + " "
+
+        # Parse rich definition HTML into p_fn preserving formatting tags
+        fn_content_soup = BeautifulSoup(fn_defs[fn_num], "html.parser")
+        for child in list(fn_content_soup.contents):
+            p_fn.append(child)
+
+        p_fn.append(" ")
 
         a_back = soup.new_tag(
             "a",

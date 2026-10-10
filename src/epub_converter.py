@@ -107,6 +107,13 @@ blockquote {
     color: #1a202c;
 }
 
+.title-page-range {
+    font-size: 1.1em;
+    font-weight: 500;
+    color: #4a5568;
+    margin: 0.5em 0 1.2em 0;
+}
+
 .title-page-divider {
     width: 60px;
     height: 3px;
@@ -409,7 +416,7 @@ class EpubConverter:
             book.add_item(img_item)
 
         # Create Dedicated Title Page as First Reading Item
-        title_page_item = self._create_title_page(style_item)
+        title_page_item = self._create_title_page(style_item, start_ch, end_ch)
         book.add_item(title_page_item)
 
         # Add XHTML Chapters
@@ -450,8 +457,8 @@ class EpubConverter:
         book.add_item(epub.EpubNcx())
         book.add_item(epub.EpubNav())
 
-        # Spine: Title page is first reading document, followed by chapters
-        book.spine = ["nav", title_page_item] + epub_chapters
+        # Spine: Title page is first reading document, followed by TOC ('nav') and chapters
+        book.spine = [title_page_item, "nav"] + epub_chapters
 
         # Output File paths
         epub_filename = f"ORV_Ch{start_ch}-{end_ch}.epub"
@@ -532,9 +539,10 @@ class EpubConverter:
         with open(target_xhtml_path, "w", encoding="utf-8") as f:
             f.write(xhtml_content)
 
-    def _create_title_page(self, style_item: epub.EpubItem) -> epub.EpubHtml:
+    def _create_title_page(self, style_item: epub.EpubItem, start_ch: str = "", end_ch: str = "") -> epub.EpubHtml:
         """Create a dedicated, clean, centered Title Page as the first reading document."""
-        title_page_html = """<!DOCTYPE html>
+        range_html = f'<p class="title-page-range">Chapters {escape(start_ch)}–{escape(end_ch)}</p>' if start_ch and end_ch else ""
+        title_page_html = f"""<!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en">
 <head>
     <title>Title Page</title>
@@ -543,6 +551,7 @@ class EpubConverter:
 <body class="title-page-body">
     <div class="title-page-container">
         <h1 class="title-page-title">Omniscient Reader’s Viewpoint</h1>
+        {range_html}
         <div class="title-page-divider"></div>
         <p class="title-page-author">Original novel by Sing Shong</p>
         <p class="title-page-translator">Translation by WeTriedTLS / Flamecomics</p>
@@ -551,6 +560,7 @@ class EpubConverter:
 </html>
 """
         item = epub.EpubHtml(
+            uid="title_page",
             title="Title Page",
             file_name="title_page.xhtml",
             lang="en",
