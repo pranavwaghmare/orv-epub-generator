@@ -217,8 +217,9 @@ def format_system_windows(soup: BeautifulSoup) -> int:
         # Check for opening delimiter: '+' or '+<Header Title>'
         is_opening = (t == "+") or (t.startswith("+") and len(t) <= 40)
         if is_opening:
+            clean_t = t.replace("&lt;", "<").replace("&gt;", ">")
             header_text = ""
-            m = re.search(r'\+\s*[<\[]([^>\]/]+)[>\]]', t)
+            m = re.search(r'\+\s*[<\[]([^>\]/]+)[>\]]', clean_t)
             if m:
                 header_text = m.group(1).strip()
 
@@ -237,8 +238,9 @@ def format_system_windows(soup: BeautifulSoup) -> int:
                         cand_first = children[k].get_text(strip=True)
                         if not cand_first:
                             continue
-                        m_first = re.match(r'^[<\[]([^>\]/]+)[>\]]$', cand_first)
-                        if m_first and len(cand_first) < 50:
+                        clean_cand = cand_first.replace("&lt;", "<").replace("&gt;", ">")
+                        m_first = re.match(r'^[<\[]([^>\]/]+)[>\]]$', clean_cand)
+                        if m_first and len(clean_cand) < 50:
                             header_text = m_first.group(1).strip()
                             children[k].decompose()
                         break
@@ -540,6 +542,9 @@ def refine_chapter_html(
     Master transformation function applied during EPUB staging.
     Leaves original archived HTML files on disk completely untouched.
     """
+    # Unescape double-escaped HTML entities from CMS/editor (e.g. &amp;lt; -> &lt;, &amp;gt; -> &gt;)
+    raw_html = re.sub(r'&amp;([a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);', r'&\1;', raw_html)
+
     soup = BeautifulSoup(raw_html, "html.parser")
 
     # 1. Remove recurring translator banner image

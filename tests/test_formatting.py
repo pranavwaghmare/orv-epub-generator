@@ -327,4 +327,32 @@ def test_footnote_preserves_formatting_tags_and_prevents_stuck_words():
     assert "word hyung (형)" in item1_text
 
 
+def test_system_window_escaped_character_details_header():
+    """Double-escaped &amp;lt;Character Details&amp;gt; in HTML must be parsed as a system window header."""
+    from src.chapter_refiner import refine_chapter_html
+    raw_html = """<div class="chapter-body">
+        <p>A window appeared before my eyes.</p>
+        <p>+</p>
+        <p>&amp;lt;Character Details&amp;gt;</p>
+        <p>Name: Kim Namwoon</p>
+        <p>Age: 18</p>
+        <p>+</p>
+        <p>Story resumes here.</p>
+    </div>"""
+    refined = refine_chapter_html(raw_html, "Chapter 6", 6.0, Path("."))
+    soup = BeautifulSoup(refined, "html.parser")
+
+    win = soup.find(class_="system-window")
+    assert win is not None
+    hdr = win.find(class_="system-window-header")
+    assert hdr is not None
+    assert "<Character Details>" in hdr.get_text()
+
+    # Verify &amp;lt; was not leaked as a paragraph inside the window body
+    body_ps = win.find(class_="system-window-body").find_all("p")
+    assert not any("Character Details" in p.get_text() for p in body_ps)
+    assert any("Name: Kim Namwoon" in p.get_text() for p in body_ps)
+
+
+
 
