@@ -78,6 +78,18 @@ hr {
     width: 60%;
 }
 
+/* Scene Break / Dinkus */
+p.scene-break, .scene-break {
+    text-align: center;
+    margin: 1.8em auto;
+    font-size: 0.95em;
+    letter-spacing: 0.45em;
+    color: #4a5568;
+    line-height: 1;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
 blockquote {
     border-left: 3px solid #718096;
     margin: 1.0em 0;

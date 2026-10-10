@@ -70,3 +70,61 @@ def test_parse_invalid_html():
 
     with pytest.raises(ChapterParseError):
         parse_chapter_html("<html><body><p>No chapter number anywhere</p></body></html>", "https://example.com")
+
+
+def test_parse_wetriedtls_chapter_html():
+    sample_html = """<!DOCTYPE html>
+    <html>
+    <head><title>Chapter 1 - Omniscient Reader's Viewpoint - We Tried</title></head>
+    <body>
+        <h1>Chapter 1</h1>
+        <div class="hidden max-h-12"><img src="/thumbnail.png"/></div>
+        <article class="reader-article">
+            <p>WE TRIED TRANSLATIONS</p>
+            <p>Translator: ZERO_SUGAR</p>
+            <p>◈ Omniscient Reader’s Viewpoint ◈</p>
+            <p>Chapter 1: Prologue - Three Ways to Survive the Apocalypse</p>
+            <div class="image"><img src="https://media.reaperscans.net/file/7BSHk1m/rw9dmol9scdfn7socu0eja6p.jpg" /></div>
+            <p>There are Three Ways to Survive the Apocalypse.</p>
+            <img src="/_next/image?url=%2Fwetried_footer.png&w=640&q=75" />
+        </article>
+        <a rel="next" href="/series/omniscient-readers-viewpoint/chapter-2">Next</a>
+    </body>
+    </html>
+    """
+    parsed = parse_chapter_html(sample_html, "https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-1")
+
+    assert parsed.chapter_number == 1.0
+    assert "Prologue" in parsed.title
+    assert parsed.next_url == "https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-2"
+    # Story image preserved, footer image stripped
+    assert len(parsed.images) == 1
+    assert "rw9dmol9scdfn7socu0eja6p.jpg" in parsed.images[0].src
+    assert "wetried_footer" not in parsed.content_html
+
+
+def test_enrich_chapter_with_wetried_images_mocked(monkeypatch):
+    from src.parser import ParsedChapter, ParsedImage, enrich_chapter_with_wetried_images
+
+    # Mock fetch_wetried_chapter_images
+    def mock_fetch(ch_num, downloader=None, timeout=10):
+        return [
+            ("https://example.com/illustration1.jpg", "There are three ways to survive")
+        ]
+
+    import src.parser as p_module
+    monkeypatch.setattr(p_module, "fetch_wetried_chapter_images", mock_fetch)
+
+    chapter = ParsedChapter(
+        chapter_number=1.0,
+        title="Chapter 1: Prologue",
+        content_html="<p>There are three ways to survive the apocalypse.</p><p>Second paragraph.</p>",
+        next_url="https://example.com/ch2",
+        images=[],
+    )
+
+    injected = enrich_chapter_with_wetried_images(chapter)
+    assert injected == 1
+    assert len(chapter.images) == 1
+    assert chapter.images[0].src == "https://example.com/illustration1.jpg"
+    assert '<img alt="Illustration" src="https://example.com/illustration1.jpg"/>' in chapter.content_html

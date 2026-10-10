@@ -20,8 +20,19 @@ logger = logging.getLogger(__name__)
 # Known signatures of the recurring WeTriedTLS translator banner image
 BANNER_SHA256 = "183e9ae92f5c638d453f21849cd9d4b8d213631126b9a69c7dc0736f1dfa56a5"
 BANNER_FILE_SIZE = 118661
+BANNER_SHA256_SET: Set[str] = {
+    BANNER_SHA256,  # Flamecomics compressed
+    "38387252d3e32ed09409f4749f807e2be2f3a9b72fc26dbbbaf297b280973f23",  # WeTriedTLS original
+}
+BANNER_FILE_SIZES: Set[int] = {118661, 106191}
 BANNER_DIMENSIONS = (611, 310)
 BANNER_B64_PREFIX = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAmMAAAE2CAY"
+BANNER_URL_MARKERS = [
+    "kp91bgfq6bv414pnvayz1fis",
+    "oxjv7l3jg8r52p2iqnwqgvhg",
+    "abz8jc9v1hnn92rm71uh9wje",
+    "whundeq4yvaxklucovndsqb7",
+]
 
 
 def is_known_recurring_banner(source_str: str) -> bool:
@@ -29,6 +40,8 @@ def is_known_recurring_banner(source_str: str) -> bool:
     if not source_str:
         return False
     if source_str.startswith(BANNER_B64_PREFIX):
+        return True
+    if any(marker in source_str for marker in BANNER_URL_MARKERS):
         return True
     return False
 
@@ -52,11 +65,11 @@ def is_recurring_banner(img_tag: Tag, job_dir: Path) -> bool:
     target_file = job_dir / clean_src
     if target_file.exists() and target_file.is_file():
         # Quick size check
-        if target_file.stat().st_size == BANNER_FILE_SIZE:
+        if target_file.stat().st_size in BANNER_FILE_SIZES:
             return True
         # Hash check
         h = hashlib.sha256(target_file.read_bytes()).hexdigest()
-        if h == BANNER_SHA256:
+        if h in BANNER_SHA256_SET:
             return True
         # Dimensions check
         try:
@@ -187,11 +200,16 @@ def remove_duplicate_headings(soup: BeautifulSoup, chapter_title: str) -> None:
             clean_p = re.sub(r'[\s\-_—–:]', '', text.lower())
             clean_t = re.sub(r'[\s\-_—–:]', '', chapter_title.lower())
             if clean_p in clean_t or clean_t in clean_p:
-                # Remove duplicate paragraph and any immediately following divider hr
+                # Remove duplicate paragraph and any immediately following divider hr or rule line
                 next_sib = el.find_next_sibling()
                 el.decompose()
-                if next_sib and getattr(next_sib, "name", None) == "hr":
-                    next_sib.decompose()
+                if next_sib:
+                    if getattr(next_sib, "name", None) == "hr":
+                        next_sib.decompose()
+                    elif getattr(next_sib, "name", None) in ["p", "div"]:
+                        ns_text = next_sib.get_text(strip=True)
+                        if re.match(r'^[\s─━—–\-_=*~·•▪■◆❖]+$', ns_text):
+                            next_sib.decompose()
                 break
 
 
@@ -296,25 +314,66 @@ def clean_empty_paragraphs(soup: BeautifulSoup) -> int:
 
 def clean_chapter_intro(soup: BeautifulSoup) -> int:
     """
-    Remove all template dividing lines (<hr>) and empty paragraphs
-    between the chapter heading and the first story paragraph.
+    Remove all template dividing lines (<hr>, paragraphs consisting solely of horizontal rules or divider characters)
+    and empty paragraphs between the chapter heading and the first story paragraph.
     Preserves legitimate volume/chapter illustrations, but strips any
     dividers before or after them so content flows cleanly.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
     removed = 0
+    divider_pattern = re.compile(r'^[\s─━—–\-_=*~·•▪■◆❖]+$')
+
     for el in list(body.children):
         if not getattr(el, "name", None):
             continue
         if el.name == "hr":
             el.decompose()
             removed += 1
-        elif el.name == "p" and el.get_text(strip=True):
+            continue
+        if el.name in ["p", "div"]:
+            if el.find("img"):
+                continue
+            text = el.get_text(strip=True)
+            if not text:
+                el.decompose()
+                removed += 1
+                continue
+            if divider_pattern.match(text):
+                el.decompose()
+                removed += 1
+                continue
             # Reached first actual story prose paragraph
             break
-        elif el.name in ["div", "blockquote"] and "system-window" in el.get("class", []):
+        elif el.name in ["blockquote"] or ("system-window" in el.get("class", [])):
             break
     return removed
+
+
+def format_scene_breaks(soup: BeautifulSoup) -> int:
+    """
+    Detect scene break markers (e.g. '* * *', '***', '◆ ◆ ◆', '• • •') in chapter prose
+    and convert them to a cleanly styled, semantic section divider:
+    <p class="scene-break">◆ ◆ ◆</p>
+    """
+    body = soup.find(class_="chapter-body") or soup.body or soup
+    replaced = 0
+    scene_break_re = re.compile(r'^\s*(?:\*\s*){3,}$|^\s*(?:[•◆■❖✦]\s*){3,}$|^\s*\*{3,}\s*$')
+
+    for p in list(body.find_all(["p", "div"])):
+        # Skip if contains images or system-window
+        if p.find("img") or "system-window" in p.get("class", []):
+            continue
+        text = p.get_text(strip=True).replace("\xa0", " ")
+        if scene_break_re.match(text):
+            p.name = "p"
+            p["class"] = ["scene-break"]
+            p.string = "◆ ◆ ◆"
+            # Remove any inline styling (e.g. text-align:center)
+            if p.has_attr("style"):
+                del p["style"]
+            replaced += 1
+
+    return replaced
 
 
 def fix_inline_tag_spacing(container: Tag) -> None:
@@ -578,7 +637,10 @@ def refine_chapter_html(
     # 6. Format system windows (+ ... +)
     format_system_windows(soup)
 
-    # 7. Format interactive footnotes and clean trailing outro / lines
+    # 7. Format scene breaks (* * * -> ◆ ◆ ◆)
+    format_scene_breaks(soup)
+
+    # 8. Format interactive footnotes and clean trailing outro / lines
     format_interactive_footnotes(soup, chapter_num)
 
     return str(soup)

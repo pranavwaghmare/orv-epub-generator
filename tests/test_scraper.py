@@ -22,7 +22,7 @@ def test_archiver_two_chapters_success(tmp_path: Path, flamecomics_ch1_html: str
     downloader = Downloader(request_delay=0.0)
     downloader.fetch_html = MagicMock(side_effect=[flamecomics_ch1_html, flamecomics_ch2_html])
 
-    archiver = Archiver(manifest=manifest, downloader=downloader)
+    archiver = Archiver(manifest=manifest, downloader=downloader, enrich_missing_images=False)
     archiver.run()
 
     assert manifest.status == "completed"
@@ -61,7 +61,7 @@ def test_archiver_pause_resumable(tmp_path: Path, flamecomics_ch1_html: str, fla
         nonlocal pause_trigger
         return pause_trigger
 
-    archiver = Archiver(manifest=manifest, downloader=downloader, should_pause=check_pause)
+    archiver = Archiver(manifest=manifest, downloader=downloader, should_pause=check_pause, enrich_missing_images=False)
 
     # First run: archive chapter 1, then trigger pause before chapter 2
     def on_progress(op, ratio, log):
@@ -78,7 +78,7 @@ def test_archiver_pause_resumable(tmp_path: Path, flamecomics_ch1_html: str, fla
 
     # Resume: unpause and run again
     pause_trigger = False
-    archiver_resumed = Archiver(manifest=manifest, downloader=downloader, should_pause=lambda: False)
+    archiver_resumed = Archiver(manifest=manifest, downloader=downloader, should_pause=lambda: False, enrich_missing_images=False)
     archiver_resumed.run()
 
     assert manifest.status == "completed"
@@ -161,7 +161,7 @@ def test_archiver_resume_skips_completed_chapters(tmp_path: Path, flamecomics_ch
     # Mock should ONLY be called for chapter 2, NOT chapter 1!
     downloader.fetch_html = MagicMock(return_value=flamecomics_ch2_html)
 
-    archiver = Archiver(manifest=manifest, downloader=downloader)
+    archiver = Archiver(manifest=manifest, downloader=downloader, enrich_missing_images=False)
     archiver.run()
 
     # fetch_html called only once for Ch 2

@@ -184,18 +184,21 @@ def extract_title_and_number(soup: BeautifulSoup, next_data: Optional[dict] = No
 
     # Priority 3: Search paragraphs in the chapter content for "Chapter X: ..."
     # Many web novel releases include the chapter heading as a prominent paragraph
-    # e.g.: "Chapter 166: Episode 32 — Kim Dokja's Love (3)"
+    # e.g.: "Chapter 166: Episode 32 — Kim Dokja's Love (3)" or "Chapter 1: Prologue..."
     content_container = find_content_container(soup)
     if content_container:
         for p in content_container.find_all(["p", "h1", "h2", "h3", "h4"]):
             p_text = p.get_text(strip=True)
-            if p_text.lower().startswith("chapter") or "episode" in p_text.lower():
+            if p_text.lower().startswith("chapter") or "episode" in p_text.lower() or "prologue" in p_text.lower() or "epilogue" in p_text.lower():
                 extracted_num = extract_chapter_number_from_text(p_text)
                 if extracted_num is not None:
                     if chapter_num is None:
                         chapter_num = extracted_num
                     raw_heading = p_text
-                    break
+                    # If this heading has more substance than just "Chapter X" or "Ch. X", stop scanning
+                    clean_check = re.sub(r'^(?:chapter|ch\.?)\s*\d+(?:\.\d+)?\s*[:\-—–]?\s*', '', p_text, flags=re.IGNORECASE).strip()
+                    if clean_check:
+                        break
 
     # Priority 4: Document <title> tag
     # Example: "Omniscient Reader's Viewpoint - Episode 32 — Kim Dokja's Love (3) - Chapter 166 - Flame Comics"
@@ -211,6 +214,7 @@ def extract_title_and_number(soup: BeautifulSoup, next_data: Optional[dict] = No
         clean_title = raw_heading
         # Strip common site brandings
         clean_title = re.sub(r'\s*-\s*Flame\s*Comics.*$', '', clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r'\s*-\s*We\s*Tried.*$', '', clean_title, flags=re.IGNORECASE)
         clean_title = re.sub(r'^\s*Omniscient Reader\'?s Viewpoint\s*-\s*', '', clean_title, flags=re.IGNORECASE)
         clean_title = clean_title.strip()
 
@@ -236,6 +240,14 @@ def find_content_container(soup: BeautifulSoup) -> Optional[Tag]:
         if isinstance(c, (list, tuple)):
             return " ".join(c).lower()
         return str(c).lower()
+
+    # 0. Dedicated reader article or surface container (e.g. WeTriedTLS reader-article)
+    article = soup.find("article", class_=lambda c: c and "reader-article" in c)
+    if article:
+        return article
+    reader_surface = soup.find("div", id="reader-container")
+    if reader_surface:
+        return reader_surface
 
     # 1. Exact Mantine CSS module class: chapterContent
     for div in soup.find_all("div"):
@@ -278,10 +290,18 @@ def clean_content_dom(container: Tag) -> Tag:
     Remove ads, comments, scripts, style, buttons, and reaction widgets
     while strictly preserving paragraphs, headings, blockquotes, and inline illustrations.
     """
-    # Work on a clone or direct tag
     # Remove script, style, form, button, iframe, noscript, svg
     for unwanted in container.find_all(["script", "style", "form", "button", "iframe", "noscript", "svg"]):
         unwanted.decompose()
+
+    # Remove site branding/footer images (e.g. WeTriedTLS wetried_only, wetried_footer, logos)
+    for img in container.find_all("img"):
+        src = (img.get("src") or img.get("data-src") or "").lower()
+        if any(bad in src for bad in ["wetried_only", "wetried_footer", "logo", "avatar"]):
+            parent = img.parent
+            img.decompose()
+            if parent and parent.name in ["p", "figure", "div"] and not parent.get_text(strip=True) and not parent.find("img"):
+                parent.decompose()
 
     # Remove elements matching ad, comment, or reaction patterns
     for tag in container.find_all(True):
@@ -414,3 +434,128 @@ def parse_chapter_html(html: str, base_url: str) -> ParsedChapter:
         novel_id=novel_id,
         raw_heading=raw_heading,
     )
+
+
+WETRIED_BANNER_MARKERS = [
+    "kp91bgfq6bv414pnvayz1fis",
+    "oxjv7l3jg8r52p2iqnwqgvhg",
+    "abz8jc9v1hnn92rm71uh9wje",
+    "whundeq4yvaxklucovndsqb7",
+    "wetried_only",
+    "wetried_footer",
+    "logo",
+    "avatar",
+]
+
+
+def fetch_wetried_chapter_images(chapter_num: float, downloader: Optional[Any] = None, timeout: int = 10) -> List[Tuple[str, str]]:
+    """
+    Query WeTriedTLS (https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-X)
+    for the given chapter number to find any official story illustrations along with their
+    preceding anchor paragraph text.
+    Returns a list of (image_url, anchor_text) tuples.
+    Excludes site brandings, footers, and recurring translator banners.
+    """
+    ch_display = format_chapter_display(chapter_num)
+    url = f"https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-{ch_display}"
+    try:
+        if downloader is not None and hasattr(downloader, "fetch_html"):
+            html = downloader.fetch_html(url)
+        else:
+            import requests
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
+            if resp.status_code != 200:
+                return []
+            html = resp.text
+    except Exception:
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    article = soup.find("article", class_=lambda c: c and "reader-article" in c) or soup.find("div", id="reader-container")
+    if not article:
+        return []
+
+    results: List[Tuple[str, str]] = []
+    # Search for images inside article
+    for img in article.find_all("img"):
+        src = (img.get("src") or img.get("data-src") or "").strip()
+        if not src or any(m in src for m in WETRIED_BANNER_MARKERS):
+            continue
+
+        # Look for preceding non-empty anchor text
+        anchor_text = ""
+        wrapper = img.parent
+        while wrapper and wrapper.parent and wrapper.parent != article:
+            wrapper = wrapper.parent
+
+        if wrapper:
+            for sib in wrapper.previous_siblings:
+                t = getattr(sib, "get_text", lambda **k: "")(strip=True)
+                if t and len(t) >= 15:
+                    anchor_text = t
+                    break
+
+        results.append((src, anchor_text))
+
+    return results
+
+
+def enrich_chapter_with_wetried_images(parsed: ParsedChapter, downloader: Optional[Any] = None, timeout: int = 10) -> int:
+    """
+    Enrich a parsed chapter with missing story illustrations from WeTriedTLS.
+    If the chapter already has genuine story illustrations, no changes are made.
+    Otherwise, queries WeTriedTLS, locates matching anchor paragraphs in the chapter prose,
+    injects the illustration tags, and updates parsed.images and parsed.content_html.
+    Returns the number of images injected.
+    """
+    if parsed.chapter_number is None:
+        return 0
+
+    # If chapter already contains non-base64 images that are not banners, skip
+    story_images = [img for img in parsed.images if not img.is_base64 and not any(m in img.src for m in WETRIED_BANNER_MARKERS)]
+    if story_images:
+        return 0
+
+    wetried_imgs = fetch_wetried_chapter_images(parsed.chapter_number, downloader=downloader, timeout=timeout)
+    if not wetried_imgs:
+        return 0
+
+    soup = BeautifulSoup(parsed.content_html, "html.parser")
+    injected_count = 0
+
+    for src, anchor in wetried_imgs:
+        target_p = None
+        if anchor:
+            anchor_prefix = anchor[:30].strip().lower()
+            for p in soup.find_all("p"):
+                if anchor_prefix and anchor_prefix in p.get_text().lower():
+                    target_p = p
+                    break
+
+        new_div = soup.new_tag("div", attrs={"class": "image"})
+        new_img = soup.new_tag("img", src=src, alt="Illustration")
+        new_div.append(new_img)
+
+        if target_p:
+            target_p.insert_after(new_div)
+        else:
+            first_p = soup.find("p")
+            if first_p and ("prologue" in parsed.title.lower() or parsed.chapter_number == 1.0):
+                first_p.insert_before(new_div)
+            else:
+                soup.append(new_div)
+
+        new_parsed_img = ParsedImage(
+            index=len(parsed.images),
+            src=src,
+            alt="Illustration",
+            is_base64=False,
+            original_tag_html=str(new_img),
+        )
+        parsed.images.append(new_parsed_img)
+        injected_count += 1
+
+    if injected_count > 0:
+        parsed.content_html = str(soup)
+
+    return injected_count

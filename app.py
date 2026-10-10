@@ -82,8 +82,8 @@ with tab_new:
     with st.form("new_job_form"):
         starting_url = st.text_input(
             "Starting Chapter URL *",
-            value="https://flamecomics.xyz/novel/8/580e7d866052dfd8",
-            help="Example: https://flamecomics.xyz/novel/8/580e7d866052dfd8",
+            value="https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-1",
+            help="Supports WeTriedTLS (recommended for all illustrations) and Flamecomics. Example: https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-1 or https://flamecomics.xyz/novel/8/580e7d866052dfd8",
         )
         col_form1, col_form2 = st.columns(2)
         with col_form1:
@@ -109,12 +109,12 @@ with tab_new:
     st.markdown("##### 🔍 Inspect Starting Chapter Before Archiving")
     inspect_url = st.text_input("Enter URL to test connectivity and extract starting title:", value=starting_url, key="inspect_input")
     if st.button("Probe Starting Chapter"):
-        with st.spinner("Connecting to Flamecomics..."):
+        with st.spinner("Connecting to source..."):
             detected_num, detected_title, inspect_err = job_manager.inspect_starting_url(inspect_url.strip())
             if inspect_err:
                 st.error(f"Inspection error: {inspect_err}")
             else:
-                st.success(f"Successfully reached Flamecomics! Detected Chapter **{format_chapter_display(detected_num)}**: *{detected_title}*")
+                st.success(f"Successfully reached source! Detected Chapter **{format_chapter_display(detected_num)}**: *{detected_title}*")
 
     if submit_new_job:
         if not starting_url.strip():

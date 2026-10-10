@@ -14,6 +14,7 @@ from src.downloader import Downloader, DownloadError
 from src.manifest import ChapterRecord, ImageRecord, Manifest, utc_now_iso, safe_replace
 from src.parser import (
     build_standalone_html,
+    enrich_chapter_with_wetried_images,
     format_chapter_display,
     parse_chapter_html,
     rewrite_html_image_srcs,
@@ -40,12 +41,14 @@ class Archiver:
         on_progress: Optional[Callable[[str, float, str], None]] = None,
         should_pause: Optional[Callable[[], bool]] = None,
         skip_translator_banners: bool = True,
+        enrich_missing_images: bool = True,
     ):
         self.manifest = manifest
         self.downloader = downloader or Downloader()
         self.on_progress = on_progress or (lambda op, ratio, log: None)
         self.should_pause = should_pause or (lambda: False)
         self.skip_translator_banners = skip_translator_banners
+        self.enrich_missing_images = enrich_missing_images
 
         # Setup directories in job folder
         self.job_dir = manifest.job_dir
@@ -252,6 +255,15 @@ class Archiver:
                 logger.error(err_msg)
                 self._record_chapter_failure(current_url, discovery_index, err_msg)
                 break
+
+            # If chapter lacks illustrations, enrich from WeTriedTLS
+            if self.enrich_missing_images and "wetriedtls.com" not in current_url and parsed.chapter_number is not None:
+                try:
+                    injected = enrich_chapter_with_wetried_images(parsed, downloader=self.downloader)
+                    if injected > 0:
+                        logger.info("Enriched %d illustrations from WeTriedTLS into Chapter %s", injected, parsed.chapter_number)
+                except Exception as ex:
+                    logger.warning("WeTriedTLS image enrichment failed for chapter %s: %s", parsed.chapter_number, ex)
 
             # Validate chapter number
             if self.manifest.detected_starting_chapter is None:

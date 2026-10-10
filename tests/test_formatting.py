@@ -356,5 +356,44 @@ def test_system_window_escaped_character_details_header():
     assert any("Name: Kim Namwoon" in p.get_text() for p in body_ps)
 
 
+def test_clean_chapter_intro_divider_line():
+    """Divider line paragraphs like <p><strong>──────</strong></p> must be removed from chapter start."""
+    from src.chapter_refiner import refine_chapter_html
+    raw_html = """<div class="chapter-body">
+        <p><strong>◈ Omniscient Reader’s Viewpoint ◈</strong></p>
+        <p><strong>Chapter 191: Episode 36 — Horizon of the story (1)</strong></p>
+        <p><strong>──────</strong></p>
+        <p>That day, Seoul Dome was bathed in dazzling light.</p>
+        <p>[Someone has cleared the tenth Main Scenario.]</p>
+    </div>"""
+    refined = refine_chapter_html(raw_html, "Chapter 191: Episode 36 — Horizon of the story (1)", 191.0, Path("."))
+    soup = BeautifulSoup(refined, "html.parser")
+
+    ps = [p.get_text(strip=True) for p in soup.find_all("p")]
+    assert "──────" not in ps
+    assert "◈" not in ps[0]
+    assert ps[0] == "That day, Seoul Dome was bathed in dazzling light."
+
+
+def test_format_scene_breaks():
+    """Asterisk markers (* * *, ***) must be converted into styled semantic scene breaks."""
+    from src.chapter_refiner import refine_chapter_html
+    raw_html = """<div class="chapter-body">
+        <p>Before the scene change.</p>
+        <p style="text-align:center;justify-self:center">* * *</p>
+        <p>After the scene change.</p>
+        <p>***</p>
+        <p>Final paragraph.</p>
+    </div>"""
+    refined = refine_chapter_html(raw_html, "Chapter 10", 10.0, Path("."))
+    soup = BeautifulSoup(refined, "html.parser")
+
+    scene_breaks = soup.find_all(class_="scene-break")
+    assert len(scene_breaks) == 2
+    for sb in scene_breaks:
+        assert sb.get_text(strip=True) == "◆ ◆ ◆"
+        assert not sb.has_attr("style")
+
+
 
 
