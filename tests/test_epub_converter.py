@@ -279,3 +279,67 @@ def test_epub_side_story_cover_and_title(tmp_path: Path):
         opf_content = z.read(opf_name).decode("utf-8")
         assert "Omniscient Reader's Viewpoint: Side Story (Chapters 552-553)" in opf_content
 
+
+def test_epub_epilogue_toc_ordering(tmp_path: Path):
+    """Test that epilogue chapters (517-551) are properly grouped and ordered in TOC."""
+    import ebooklib
+    from ebooklib import epub
+
+    job_dir = tmp_path / "epilogue_job"
+    chapters_dir = job_dir / "chapters"
+    chapters_dir.mkdir(parents=True)
+
+    chapters_info = [
+        (88.0, "Chapter 88: Episode 18 - A Reader's Fight (1)"),
+        (89.0, "Chapter 89:"),  # Lone missing title
+        (90.0, "Chapter 90: Episode 18 - A Reader's Fight (3)"),
+        (516.0, "Chapter 516: Episode 99: The Oldest Dream (5)"),
+        (517.0, "Chapter 517: Epilogue 1: The Zeroth World (1)"),
+        (518.0, "Chapter 518: Epilogue 1: The Zeroth World (2)"),
+        (526.0, "Chapter 526: Episode 101: Something That Exists Nowhere (1)"),
+        (532.0, "Chapter 532: Epilogue 3: Author's Words (1)"),
+        (536.0, "Chapter 536: Epilogue 4: Omniscient Reader's Viewpoint (1)"),
+        (546.0, "Chapter 546: Epilogue 5: Eternity and Epilogue (1)"),
+    ]
+
+    manifest = Manifest(
+        job_dir=job_dir,
+        job_id="epilogue_job",
+        job_name="Epilogue Job",
+        starting_url="https://flamecomics.xyz/novel/8/88",
+        requested_ending_chapter=546.0,
+        detected_starting_chapter=88.0,
+    )
+
+    for idx, (num, title) in enumerate(chapters_info):
+        html_file = chapters_dir / f"chapter_{int(num)}.html"
+        html_file.write_text(f"<p>Content for {title}</p>", encoding="utf-8")
+        rec = ChapterRecord(
+            chapter_number=num,
+            discovery_index=idx,
+            title=title,
+            source_url=f"https://flamecomics.xyz/novel/8/{int(num)}",
+            status="completed",
+            html_path=f"chapters/chapter_{int(num)}.html",
+        )
+        manifest.add_or_update_chapter(rec)
+    manifest.save()
+
+    converter = EpubConverter(manifest=manifest)
+    epub_path = converter.convert(force_override=True)
+
+    book = epub.read_epub(str(epub_path))
+    section_titles = [item[0].title for item in book.toc if isinstance(item, tuple)]
+
+    expected_sections = [
+        "Episode 18: A Reader's Fight",
+        "Episode 99: The Oldest Dream",
+        "Epilogue 1: The Zeroth World",
+        "Epilogue 2: Something That Exists Nowhere",
+        "Epilogue 3: Author's Words",
+        "Epilogue 4: Omniscient Reader's Viewpoint",
+        "Epilogue 5: Eternity and Epilogue",
+    ]
+
+    assert section_titles == expected_sections
+

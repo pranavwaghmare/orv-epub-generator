@@ -651,14 +651,21 @@ def extract_episode_group(chapter_title: str) -> str:
       - 'Chapter 7: Episode 2 - Protagonist (1)' -> 'Episode 2: Protagonist'
       - 'Chapter 166: Episode 32 — Kim Dokja\'s Love (3)' -> 'Episode 32: Kim Dokja\'s Love'
     """
+    # Normalize mojibake and special dashes
+    t = chapter_title.replace('\xe2\u20ac\u201d', ' - ').replace('\xe2\u20ac\u2013', ' - ').replace('â€”', ' - ').replace('â€“', ' - ')
+    t = re.sub(r'[\u2014\u2013\u2015\u2212\u2010\u2011\u2012]', ' - ', t)
+
     # Clean leading 'Chapter X:'
-    t_clean = re.sub(r'^\s*Chapter\s+\d+(?:\.\d+)?\s*[:\-—–]\s*', '', chapter_title, flags=re.IGNORECASE).strip()
+    t_clean = re.sub(r'^\s*Chapter\s+\d+(?:\.\d+)?\s*[:\-—–]\s*', '', t, flags=re.IGNORECASE).strip()
 
     # Pattern A: Episode N - Name (Part)
     m = re.match(r'^Episode\s+(\d+)\s*[:\-—–]\s*(.*?)(?:\s*\(\d+\))?\s*$', t_clean, re.IGNORECASE)
     if m:
         ep_num = m.group(1)
         ep_name = m.group(2).strip()
+        # Special ORV scanlator naming: "Episode 101: Something That Exists Nowhere" is canonically Epilogue 2
+        if ep_num == '101' and 'Something That Exists Nowhere' in ep_name:
+            return 'Epilogue 2: Something That Exists Nowhere'
         return f"Episode {ep_num}: {ep_name}" if ep_name else f"Episode {ep_num}"
 
     # Pattern B: Prologue - Name
@@ -667,11 +674,18 @@ def extract_episode_group(chapter_title: str) -> str:
         p_name = m.group(1)
         return f"Prologue: {p_name.strip()}" if p_name else "Prologue"
 
-    # Pattern C: Epilogue - Name
-    m = re.match(r'^Epilogue(?:\s*[:\-—–]\s*(.*?))?(?:\s*\(\d+\))?\s*$', t_clean, re.IGNORECASE)
+    # Pattern C: Epilogue [N] - Name
+    m = re.match(r'^Epilogue(?:\s+(\d+))?(?:\s*[:\-—–]\s*(.*?))?(?:\s*\(\d+\))?\s*$', t_clean, re.IGNORECASE)
     if m:
-        e_name = m.group(1)
-        return f"Epilogue: {e_name.strip()}" if e_name else "Epilogue"
+        e_num = m.group(1)
+        e_name = (m.group(2) or "").strip()
+        if e_num and e_name:
+            return f"Epilogue {e_num}: {e_name}"
+        elif e_num:
+            return f"Epilogue {e_num}"
+        elif e_name:
+            return f"Epilogue: {e_name}"
+        return "Epilogue"
 
     # Pattern D: Side Story [N] - Name (Part)
     m = re.match(r'^Side\s*Story(?:\s+(\d+))?(?:\s*[:\-—–]\s*(.*?))?(?:\s*\(\d+\))?\s*$', t_clean, re.IGNORECASE)

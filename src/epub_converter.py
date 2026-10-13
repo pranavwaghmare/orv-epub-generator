@@ -474,16 +474,28 @@ class EpubConverter:
             epub_chapters.append(c_item)
             staged_chapter_data.append((num, title, c_item))
 
-        # Build Nested Episode-Wise Table of Contents
-        episode_groups: Dict[str, List[epub.EpubHtml]] = {}
-        for num, title, c_item in staged_chapter_data:
-            ep_name = extract_episode_group(title)
-            if ep_name not in episode_groups:
-                episode_groups[ep_name] = []
-            episode_groups[ep_name].append(c_item)
+        # Build Nested Episode-Wise Table of Contents (Contiguous grouping preserving reading order)
+        resolved_groups: List[str] = [extract_episode_group(t) for _, t, _ in staged_chapter_data]
+
+        # Contextual inheritance for lone missing headings (e.g. Chapter 89 between Episode 18 chapters)
+        for i in range(len(resolved_groups)):
+            if resolved_groups[i] == "Chapters":
+                prev_ep = resolved_groups[i - 1] if i > 0 else None
+                next_ep = resolved_groups[i + 1] if i + 1 < len(resolved_groups) else None
+                if prev_ep and prev_ep == next_ep and prev_ep != "Chapters":
+                    resolved_groups[i] = prev_ep
+
+        # Group contiguous chapters under their episode section
+        grouped_sections: List[Tuple[str, List[epub.EpubHtml]]] = []
+        for i, (num, title, c_item) in enumerate(staged_chapter_data):
+            ep_name = resolved_groups[i]
+            if grouped_sections and grouped_sections[-1][0] == ep_name:
+                grouped_sections[-1][1].append(c_item)
+            else:
+                grouped_sections.append((ep_name, [c_item]))
 
         toc_items = [title_page_item]
-        for ep_name, group_chapters in episode_groups.items():
+        for ep_name, group_chapters in grouped_sections:
             sec = epub.Section(ep_name, href=group_chapters[0].file_name)
             toc_items.append((sec, tuple(group_chapters)))
 
