@@ -390,6 +390,28 @@ class EpubConverter:
         book.set_language("en")
         book.add_author("Sing Shong")
         book.add_metadata("DC", "contributor", "WeTriedTLS / Flamecomics")
+        if is_side_story:
+            book.add_metadata(
+                "DC",
+                "description",
+                "Omniscient Reader's Viewpoint: Side Story (Sequel).\n\n"
+                "Continuing beyond the conclusion of the original scenarios, the story follows new "
+                "world-lines, incarnations, and constellations exploring the aftermath of the epilogue."
+            )
+            book.add_metadata("DC", "subject", "Fantasy, Action, Sequel, Side Story, Web Novel")
+        else:
+            book.add_metadata(
+                "DC",
+                "description",
+                "Only I know the end of this world.\n\n"
+                "An ordinary office worker named Kim Dokja is the sole reader of a niche web novel titled "
+                "'Three Ways to Survive the Apocalypse' (TWSA). But on the day the final chapter is released, "
+                "the world of the novel suddenly transforms into reality. Faced with apocalyptic scenarios, "
+                "deadly monsters, and cosmic constellations watching from the stars, Dokja must use his exclusive "
+                "knowledge of the novel to reach the end of the world."
+            )
+            book.add_metadata("DC", "subject", "Fantasy, Action, Apocalyptic, Supernatural, Web Novel")
+        book.add_metadata("DC", "rights", "Original work by Sing Shong. Fan translation by WeTriedTLS and Flamecomics.")
 
         # Cover Image Registration
         if is_side_story:
@@ -501,7 +523,15 @@ class EpubConverter:
 
         book.toc = tuple(toc_items)
         book.add_item(epub.EpubNcx())
-        book.add_item(epub.EpubNav())
+        nav_item = epub.EpubNav()
+        book.add_item(nav_item)
+
+        # Landmarks / Guide navigation for e-readers
+        first_content_item = epub_chapters[0] if epub_chapters else title_page_item
+        book.guide = [
+            {"type": "toc", "title": "Table of Contents", "item": nav_item},
+            {"type": "text", "title": "Beginning", "item": first_content_item},
+        ]
 
         # Spine: Title page is first reading document, followed by TOC ('nav') and chapters
         book.spine = [title_page_item, "nav"] + epub_chapters
@@ -512,7 +542,15 @@ class EpubConverter:
         temp_epub_path = self.output_dir / f"{epub_filename}.tmp"
 
         self._notify("Writing File", 0.95, f"Writing EPUB to temporary file: {temp_epub_path.name}")
-        epub.write_epub(str(temp_epub_path), book, {})
+        epub.write_epub(
+            str(temp_epub_path),
+            book,
+            {
+                "epub2_guide": True,
+                "epub3_landmark": True,
+                "landmark_title": "Guide",
+            },
+        )
 
         # Step 4: Verify generated EPUB package
         self._verify_epub_file(temp_epub_path)
