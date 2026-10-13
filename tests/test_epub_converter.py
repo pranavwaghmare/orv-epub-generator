@@ -343,3 +343,49 @@ def test_epub_epilogue_toc_ordering(tmp_path: Path):
 
     assert section_titles == expected_sections
 
+
+def test_epub_sub_range_conversion(tmp_path: Path):
+    """Test converting a subset of chapters into a targeted sub-range EPUB."""
+    job_dir = tmp_path / "sub_job"
+    chapters_dir = job_dir / "chapters"
+    chapters_dir.mkdir(parents=True)
+
+    manifest = Manifest(
+        job_dir=job_dir,
+        job_id="sub_job",
+        job_name="Sub Range Job",
+        starting_url="https://flamecomics.xyz/novel/8/1",
+        requested_ending_chapter=5.0,
+        detected_starting_chapter=1.0,
+    )
+
+    for ch_num in [1.0, 2.0, 3.0, 4.0, 5.0]:
+        html_file = chapters_dir / f"chapter_{int(ch_num)}.html"
+        html_file.write_text(f"<p>Prose for Chapter {int(ch_num)}</p>", encoding="utf-8")
+        rec = ChapterRecord(
+            chapter_number=ch_num,
+            discovery_index=int(ch_num) - 1,
+            title=f"Chapter {int(ch_num)}: Episode {int(ch_num)} - Test",
+            source_url=f"https://flamecomics.xyz/novel/8/{int(ch_num)}",
+            status="completed",
+            html_path=f"chapters/chapter_{int(ch_num)}.html",
+        )
+        manifest.add_or_update_chapter(rec)
+    manifest.save()
+
+    converter = EpubConverter(manifest=manifest)
+    epub_path = converter.convert(start_chapter=2.0, end_chapter=4.0, force_override=True)
+
+    assert epub_path.name == "ORV_Ch2-4.epub"
+    with zipfile.ZipFile(epub_path, "r") as z:
+        names = z.namelist()
+        assert any("ch_2.xhtml" in n for n in names)
+        assert any("ch_3.xhtml" in n for n in names)
+        assert any("ch_4.xhtml" in n for n in names)
+        assert not any("ch_1.xhtml" in n for n in names)
+        assert not any("ch_5.xhtml" in n for n in names)
+        tp = next(n for n in names if "title_page.xhtml" in n)
+        tp_text = z.read(tp).decode("utf-8")
+        assert "Chapters 2–4" in tp_text
+
+

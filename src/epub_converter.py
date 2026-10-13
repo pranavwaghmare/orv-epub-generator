@@ -294,17 +294,26 @@ class EpubConverter:
         logger.info(msg)
         self.on_progress(op, ratio, msg)
 
-    def convert(self, force_override: bool = False, force_restage: bool = False) -> Path:
+    def convert(
+        self,
+        force_override: bool = False,
+        force_restage: bool = False,
+        start_chapter: Optional[float] = None,
+        end_chapter: Optional[float] = None,
+    ) -> Path:
         """
         Convert local archive to a polished, readable EPUB file.
         force_override: Allows generating even if archive validation detected missing chapters or assets.
         force_restage: Force re-refining all chapters from scratch even if staged XHTML exists.
+        start_chapter: Optional starting chapter number for sub-range conversion.
+        end_chapter: Optional ending chapter number for sub-range conversion.
         """
         # Step 1: Validate Archive
         self._notify("Validating", 0.0, "Validating local archive prior to conversion...")
         validation = validate_archive(self.manifest)
         
-        if not validation.is_valid and not force_override:
+        is_sub_range = (start_chapter is not None) or (end_chapter is not None)
+        if not validation.is_valid and not force_override and not is_sub_range:
             err_summary = "; ".join(validation.detailed_report[:5])
             msg = f"Archive validation failed ({err_summary}). Conversion blocked unless 'Generate Anyway' is enabled."
             self.manifest.conversion["status"] = "failed"
@@ -326,7 +335,15 @@ class EpubConverter:
 
         # Step 2: Resumable Staging of Chapters to XHTML with Refined Formatting
         completed_chapters = [c for c in self.manifest.chapters if c.status == "completed"]
+        if start_chapter is not None:
+            completed_chapters = [c for c in completed_chapters if c.chapter_number >= start_chapter]
+        if end_chapter is not None:
+            completed_chapters = [c for c in completed_chapters if c.chapter_number <= end_chapter]
         completed_chapters.sort(key=lambda c: c.chapter_number)
+
+        if not completed_chapters:
+            range_desc = f"between Ch {start_chapter} and Ch {end_chapter}" if (start_chapter or end_chapter) else "in archive"
+            raise EpubConversionError(f"Cannot generate EPUB: no completed chapters found {range_desc}.")
 
         staged_nums = set(self.manifest.conversion.get("staged_chapters", []))
         total_chapters = len(completed_chapters)

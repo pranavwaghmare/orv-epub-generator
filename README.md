@@ -54,19 +54,24 @@ Your browser will open automatically at **`http://localhost:8501`**.
 ## 📖 How to Make Your EPUB
 
 1. **Start Archiving**:
-   - In the **Start New Archival Job** tab, enter your starting chapter URL:
-     * **WeTriedTLS (Recommended)**: `https://wetriedtls.com/series/omniscient-readers-viewpoint/chapter-1`
-     * **Flamecomics**: `https://flamecomics.xyz/novel/8/580e7d866052dfd8`
-   - Enter your ending chapter number (e.g. `551` or `700`).
-   - *(Optional)* Give the job a custom name.
+   - In the **Start New Archival Job** tab, select a **Predefined Volume / Scope Preset** or customize:
+     * **Omnibus**: Chapters 1–551 (Complete Main Story)
+     * **Volume 1 (Part 1)**: Chapters 1–188 (Episodes 1–35)
+     * **Volume 2 (Part 2)**: Chapters 189–284 (Episodes 36–52)
+     * **Volume 3 (Part 3)**: Chapters 285–398 (Episodes 53–75)
+     * **Volume 4 (Part 4)**: Chapters 399–486 (Episodes 76–92)
+     * **Volume 5 (Part 5)**: Chapters 487–551 (Episodes 93–99 + Epilogue)
+     * **Custom Range**: Any custom URL and ending chapter number.
    - Click **🚀 Start Archival Job**.
-   - *Note: Any chapter already archived in a previous job is reused instantly from local cache without re-downloading.*
+   - *Note: Any chapter already archived in an earlier job is copied instantly from local cache without re-downloading.*
 
-2. **Convert to EPUB**:
-   - Switch to the **Existing Jobs & Conversion** tab.
-   - Select your completed job.
+2. **Convert to EPUB (Full or Sub-Ranges)**:
+   - Switch to the **Existing Jobs & Conversion** tab and select your job.
+   - Choose your **Conversion Scope**:
+     * **All Archived Chapters**: Bundles all chapters in the job into a single volume/omnibus.
+     * **Custom Sub-Chapter Range**: Specify any starting and ending chapters (e.g. Ch 1–188, Ch 517–551) to generate a targeted volume.
    - Click **📚 Convert to EPUB**.
-   - Once conversion finishes, click **📥 Download EPUB** to transfer the book to your e-reader or reading app (Apple Books, KOReader, Kindle, Moon+ Reader, etc.).
+   - Download any generated EPUB directly from the **📥 Generated EPUBs** list to transfer to your e-reader or reading app (Apple Books, KOReader, Kindle, Moon+ Reader, etc.).
 
 ---
 
