@@ -441,6 +441,8 @@ WETRIED_BANNER_MARKERS = [
     "oxjv7l3jg8r52p2iqnwqgvhg",
     "abz8jc9v1hnn92rm71uh9wje",
     "whundeq4yvaxklucovndsqb7",
+    "gec0k0sv9ggd47j8rsc4iq2r",
+    "y6mkf44jb32qk47caypt7g0b",
     "wetried_only",
     "wetried_footer",
     "logo",

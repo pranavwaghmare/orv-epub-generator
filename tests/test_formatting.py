@@ -476,3 +476,37 @@ def test_wetriedtls_div_horizontal_rule_trailing_white_line(tmp_path: Path):
     # No footnotes section should be present
     assert not soup_no_fn.find(class_="chapter-footnotes"), \
         "Footnote section should not be rendered when there are no footnote definitions"
+
+
+def test_wetriedtls_banners_removal_by_hash_and_size(tmp_path: Path):
+    job_dir = tmp_path / "job_banners"
+    img_dir = job_dir / "images"
+    img_dir.mkdir(parents=True)
+
+    # 1. WeTriedTLS 611x310 banner (106191 bytes)
+    b1 = img_dir / "ch_11_banner.png"
+    b1.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (106191 - 8))
+
+    # 2. WeTriedTLS 1249x654 high-res banner (386792 bytes)
+    b2 = img_dir / "ch_100_banner.png"
+    b2.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * (386792 - 8))
+
+    # 3. Legitimate novel illustration
+    legit = img_dir / "ch_100_story.jpg"
+    legit.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 5000)
+
+    html = """<div class="chapter-body">
+        <figure><img src="../images/ch_11_banner.png" /></figure>
+        <p>Prose line 1</p>
+        <figure><img src="../images/ch_100_story.jpg" /></figure>
+        <p>Prose line 2</p>
+        <div><img src="../images/ch_100_banner.png" /></div>
+    </div>"""
+
+    soup = BeautifulSoup(html, "html.parser")
+    removed = remove_recurring_banners(soup, job_dir)
+
+    assert removed == 2
+    imgs = soup.find_all("img")
+    assert len(imgs) == 1
+    assert "ch_100_story.jpg" in imgs[0]["src"]

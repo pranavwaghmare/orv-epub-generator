@@ -22,16 +22,23 @@ BANNER_SHA256 = "183e9ae92f5c638d453f21849cd9d4b8d213631126b9a69c7dc0736f1dfa56a
 BANNER_FILE_SIZE = 118661
 BANNER_SHA256_SET: Set[str] = {
     BANNER_SHA256,  # Flamecomics compressed
-    "38387252d3e32ed09409f4749f807e2be2f3a9b72fc26dbbbaf297b280973f23",  # WeTriedTLS original
+    "38387252d3e32ed09409f4749f807e2be2f3a9b72fc26dbbbaf297b280973f23",  # WeTriedTLS 611x310
+    "9772f0e32f1147d118f5e897cbfdda97c3f7e38e21509e4cbac4f26557535ebe",  # WeTriedTLS 1249x654
 }
-BANNER_FILE_SIZES: Set[int] = {118661, 106191}
+BANNER_FILE_SIZES: Set[int] = {118661, 106191, 386792}
 BANNER_DIMENSIONS = (611, 310)
+BANNER_DIMENSIONS_SET: Set[Tuple[int, int]] = {
+    (611, 310),
+    (1249, 654),
+}
 BANNER_B64_PREFIX = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAmMAAAE2CAY"
 BANNER_URL_MARKERS = [
     "kp91bgfq6bv414pnvayz1fis",
     "oxjv7l3jg8r52p2iqnwqgvhg",
     "abz8jc9v1hnn92rm71uh9wje",
     "whundeq4yvaxklucovndsqb7",
+    "gec0k0sv9ggd47j8rsc4iq2r",
+    "y6mkf44jb32qk47caypt7g0b",
 ]
 
 
@@ -93,7 +100,7 @@ def is_recurring_banner(img_tag: Tag, job_dir: Path) -> bool:
         # Dimensions check
         try:
             with Image.open(target_file) as im:
-                if im.size == BANNER_DIMENSIONS:
+                if im.size in BANNER_DIMENSIONS_SET or im.size == BANNER_DIMENSIONS:
                     return True
         except Exception:
             pass
