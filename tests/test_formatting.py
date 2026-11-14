@@ -517,3 +517,155 @@ def test_wetriedtls_banners_removal_by_hash_and_size(tmp_path: Path):
     imgs = soup.find_all("img")
     assert len(imgs) == 1
     assert "ch_100_story.jpg" in imgs[0]["src"]
+
+
+def test_chained_system_windows_consecutive_profiles_chapter_601():
+    """Consecutive reader profiles sharing a single '+' boundary (e.g. Ch 601) must both be formatted."""
+    html = """<div class="chapter-body">
+        <p>[You are checking this reader's profile information.]</p>
+        <p>+</p>
+        <p>ID: barampoong</p>
+        <p>Platform: Textpia</p>
+        <p>Total Comments: 31</p>
+        <p>Reader Level: 35</p>
+        <p>Number of Completed Reads: 6</p>
+        <p>+</p>
+        <p>ID: strawberry1137</p>
+        <p>Platform: Sirius</p>
+        <p>Total Comments: 112</p>
+        <p>Reader Level: 46</p>
+        <p>Number of Completed Reads: 8</p>
+        <p>+</p>
+        <p>The old man was 0.06 Killer King.</p>
+    </div>"""
+
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_system_windows(soup)
+
+    assert count == 2
+    windows = soup.find_all(class_="system-window")
+    assert len(windows) == 2
+
+    # Verify first window
+    assert "ID: barampoong" in windows[0].get_text()
+    assert "Total Comments: 31" in windows[0].get_text()
+
+    # Verify second window
+    assert "ID: strawberry1137" in windows[1].get_text()
+    assert "Total Comments: 112" in windows[1].get_text()
+
+    # Verify surrounding story text is NOT in any window
+    assert "The old man was 0.06 Killer King." not in windows[0].get_text()
+    assert "The old man was 0.06 Killer King." not in windows[1].get_text()
+    assert "The old man was 0.06 Killer King." in soup.get_text()
+
+    # Verify no dangling '+' delimiter remains
+    dangling = [p for p in soup.find_all(["p", "div"]) if p.get_text(strip=True) == "+"]
+    assert len(dangling) == 0
+
+
+def test_chained_system_windows_with_headers_chapter_604():
+    """Consecutive character summary windows with <...> headers sharing '+' boundary (e.g. Ch 604)."""
+    html = """<div class="chapter-body">
+        <p>+</p>
+        <p>&lt;Character Summary Information&gt;</p>
+        <p>Name:Ha Min</p>
+        <p>Patron Constellation:Snake That Cuts Off Its Tail</p>
+        <p>Exclusive Attribute:Lizardman(Rare)</p>
+        <p>Overall Attributes: [Constitution Lv. 14], [Strength Lv. 13], [Agility Lv. 16], [Mana Lv. 7]</p>
+        <p>+</p>
+        <p>&lt;Character Summary Information&gt;</p>
+        <p>Name:Kim Jeonhwa</p>
+        <p>Patron Constellation:Plague-Bringing Rat</p>
+        <p>Exclusive Attribute:Ratman(Rare)</p>
+        <p>Overall Attributes: [Constitution Lv. 18], [Strength Lv. 16], [Agility Lv. 11], [Mana Lv. 6]</p>
+        <p>+</p>
+        <p>They were both nonhuman species.</p>
+    </div>"""
+
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_system_windows(soup)
+
+    assert count == 2
+    windows = soup.find_all(class_="system-window")
+    assert len(windows) == 2
+
+    hdr0 = windows[0].find(class_="system-window-header")
+    assert hdr0 is not None
+    assert "<Character Summary Information>" in hdr0.get_text()
+    assert "Name:Ha Min" in windows[0].get_text()
+
+    hdr1 = windows[1].find(class_="system-window-header")
+    assert hdr1 is not None
+    assert "<Character Summary Information>" in hdr1.get_text()
+    assert "Name:Kim Jeonhwa" in windows[1].get_text()
+
+    dangling = [p for p in soup.find_all(["p", "div"]) if p.get_text(strip=True) == "+"]
+    assert len(dangling) == 0
+
+
+def test_triple_chained_system_windows_comments_chapter_603():
+    """Triple consecutive comment windows sharing '+' boundaries (e.g. Ch 603)."""
+    html = """<div class="chapter-body">
+        <p>+</p>
+        <p>"I'm here for free cookies~"</p>
+        <p>―(Omniscient Reader's Viewpoint, Chapter 1)</p>
+        <p>+</p>
+        <p>"I heard there's some event going on. Is this as far as the free stuff goes??"</p>
+        <p>―(Omniscient Reader's Viewpoint, Chapter 50)</p>
+        <p>+</p>
+        <p>"I used up all the cookies I got~~ But I'll keep reading~~"</p>
+        <p>―(Omniscient Reader's Viewpoint, Chapter 102)</p>
+        <p>+</p>
+        <p>For a moment, I was at a loss for words.</p>
+    </div>"""
+
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_system_windows(soup)
+
+    assert count == 3
+    windows = soup.find_all(class_="system-window")
+    assert len(windows) == 3
+
+    assert "Chapter 1" in windows[0].get_text()
+    assert "Chapter 50" in windows[1].get_text()
+    assert "Chapter 102" in windows[2].get_text()
+
+    assert "For a moment, I was at a loss for words." in soup.get_text()
+    dangling = [p for p in soup.find_all(["p", "div"]) if p.get_text(strip=True) == "+"]
+    assert len(dangling) == 0
+
+
+def test_separate_windows_with_prose_not_chained_chapter_14():
+    """Prose between separate system windows with explicit opening delimiters must remain prose."""
+    html = """<div class="chapter-body">
+        <p>+</p>
+        <p>* Heart of the Ancient Dragon - Stock: ?</p>
+        <p>* Ancient Dragon Bone - Stock: 1</p>
+        <p>+</p>
+        <p>I selected the Heart of the Ancient Dragon.</p>
+        <p>+</p>
+        <p>&lt;Item Information&gt;</p>
+        <p>Name: Heart of the Ancient Dragon</p>
+        <p>Grade: SSS</p>
+        <p>+</p>
+        <p>As expected, that one was sold out.</p>
+    </div>"""
+
+    soup = BeautifulSoup(html, "html.parser")
+    count = format_system_windows(soup)
+
+    assert count == 2
+    windows = soup.find_all(class_="system-window")
+    assert len(windows) == 2
+
+    assert "* Heart of the Ancient Dragon" in windows[0].get_text()
+    assert "Name: Heart of the Ancient Dragon" in windows[1].get_text()
+
+    # The narrative prose between them must NOT be inside a system-window
+    assert "I selected the Heart of the Ancient Dragon." not in windows[0].get_text()
+    assert "I selected the Heart of the Ancient Dragon." not in windows[1].get_text()
+    assert "I selected the Heart of the Ancient Dragon." in soup.get_text()
+
+    dangling = [p for p in soup.find_all(["p", "div"]) if p.get_text(strip=True) == "+"]
+    assert len(dangling) == 0

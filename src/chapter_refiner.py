@@ -278,11 +278,79 @@ def remove_duplicate_headings(soup: BeautifulSoup, chapter_title: str) -> None:
                 break
 
 
+def is_window_delimiter(cand_text: str) -> bool:
+    """Return True if cand_text matches a system window '+' boundary delimiter."""
+    t = cand_text.strip()
+    return t == "+" or (t.startswith("+") and len(t) <= 40)
+
+
+def is_system_field(text: str) -> bool:
+    """Detect whether a line is an in-world system attribute / key-value pair."""
+    return bool(re.match(
+        r'^(?:ID|Platform|Total Comments|Reader Level|Number of Completed Reads|'
+        r'Name|Age|Patron [Cc]onstellation|Exclusive [Aa]ttribute|Exclusive [Ss]kill|'
+        r'Overall [Aa]ttributes|Overall [Ss]tats|Category|Difficulty|Clear [Cc]onditions?|'
+        r'Additional Clear Conditions|Time [Ll]imit|Compensation|Reward|Failure|'
+        r'Grade|Description|Rating|Price|Stock|Effect|Clear Conditions|Clear Requirement)\s*:',
+        text.strip(),
+        re.IGNORECASE
+    ))
+
+
+def is_window_header(text: str) -> bool:
+    """Detect whether a line is a system window title / header."""
+    clean = text.strip().replace('&lt;', '<').replace('&gt;', '>')
+    # Angle brackets or novel title brackets: <Title> or 『Title』
+    if re.match(r'^[<『][^>』]+[>』]$', clean) and len(clean) <= 70:
+        return True
+    # Square brackets [Title] representing a window header rather than broadcast dialogue
+    if re.match(r'^\[[^\]]+\]$', clean) and len(clean) <= 70:
+        inner = clean[1:-1].strip()
+        if any(bad in inner for bad in [
+            'activated', 'arrived', 'begun', 'opened', 'failed', 'completed',
+            'says', 'spoke', 'flinches', 'wishes', 'looks', 'agrees', 'nods'
+        ]):
+            return False
+        if any(inner.startswith(bad) for bad in [
+            'The Constellation', 'Some Constellation', 'Demon King', 'Incarnation',
+            'You have', 'A new', 'Exclusive skill', 'Warning', 'Notification'
+        ]):
+            return False
+        if ':' in inner or any(w in inner for w in [
+            'Scenario', 'Details', 'Profile', 'Progress', 'Information', 'Fable', 'Story'
+        ]):
+            return True
+    return False
+
+
+def is_chained_window(cand_texts: List[str]) -> bool:
+    """Check if a candidate paragraph block between plus delimiters is a consecutive system window."""
+    if not cand_texts:
+        return False
+    # 1. First element is a recognized window header
+    if is_window_header(cand_texts[0]):
+        return True
+    # 2. Contains recognized system attributes (e.g. ID: strawberry1137)
+    if any(is_system_field(t) for t in cand_texts):
+        return True
+    # 3. Contains ORV comment citation (e.g. Chapter 603 comments)
+    if any(any(m in t for m in ['(Omniscient Reader', '(ORV', '―(', '-(']) for t in cand_texts):
+        return True
+    # 4. Bullet lists where first element is a bullet or number
+    if re.match(r'^[\*\-•▪■◆❖✦]\s+', cand_texts[0]) or re.match(r'^\d+\.\s+', cand_texts[0]):
+        return True
+    # 5. Cinema Tour / Dungeon rules keywords
+    if any(any(k in t for k in ['[Standard Stage]', '[Bonus Stage]', '[Trap Stage]', 'Cinema Journey', 'Theater Dungeon', 'Die*']) for t in cand_texts):
+        return True
+    return False
+
+
 def format_system_windows(soup: BeautifulSoup) -> int:
     """
     Convert in-world system windows surrounded by paired '+' delimiters into
     semantic HTML blocks: <div class="system-window">...</div>.
     Safeguards against lone/unmatched plus signs.
+    Supports consecutive/chained windows sharing a '+' boundary delimiter.
     """
     body = soup.find(class_="chapter-body") or soup.body or soup
     # Flatten any stray wrapper tags (e.g. <main>, <article>, <center>)
@@ -295,10 +363,12 @@ def format_system_windows(soup: BeautifulSoup) -> int:
     i = 0
     while i < len(children):
         el = children[i]
-        t = el.get_text(strip=True)
+        if el.find("img"):
+            i += 1
+            continue
 
-        # Check for opening delimiter: '+' or '+<Header Title>'
-        is_opening = (t == "+") or (t.startswith("+") and len(t) <= 40)
+        t = el.get_text(strip=True)
+        is_opening = is_window_delimiter(t)
         if is_opening:
             clean_t = t.replace("&lt;", "<").replace("&gt;", ">")
             header_text = ""
@@ -309,8 +379,11 @@ def format_system_windows(soup: BeautifulSoup) -> int:
             # Search forward for closing '+' delimiter (bounded to maximum 40 paragraphs)
             closing_idx = None
             for j in range(i + 1, min(i + 40, len(children))):
-                cand = children[j].get_text(strip=True)
-                if cand == "+" or (cand.startswith("+") and len(cand) == 1):
+                cand_el = children[j]
+                if cand_el.find("img"):
+                    continue
+                cand = cand_el.get_text(strip=True)
+                if is_window_delimiter(cand):
                     closing_idx = j
                     break
 
@@ -322,10 +395,26 @@ def format_system_windows(soup: BeautifulSoup) -> int:
                         if not cand_first:
                             continue
                         clean_cand = cand_first.replace("&lt;", "<").replace("&gt;", ">")
-                        m_first = re.match(r'^[<\[]([^>\]/]+)[>\]]$', clean_cand)
-                        if m_first and len(clean_cand) < 50:
-                            header_text = m_first.group(1).strip()
-                            children[k].decompose()
+                        m_first = re.match(r'^[<\[『]([^>\]』/]+)[>\]』]$', clean_cand)
+                        if m_first and len(clean_cand) <= 70:
+                            inner = m_first.group(1).strip()
+                            is_valid_hdr = True
+                            if clean_cand.startswith("["):
+                                if any(bad in inner for bad in [
+                                    'activated', 'arrived', 'begun', 'opened', 'failed', 'completed',
+                                    'says', 'spoke', 'flinches', 'wishes', 'looks', 'agrees', 'nods'
+                                ]) or any(inner.startswith(bad) for bad in [
+                                    'The Constellation', 'Some Constellation', 'Demon King', 'Incarnation',
+                                    'You have', 'A new', 'Exclusive skill', 'Warning', 'Notification'
+                                ]):
+                                    is_valid_hdr = False
+                                elif not (':' in inner or any(w in inner for w in [
+                                    'Scenario', 'Details', 'Profile', 'Progress', 'Information', 'Fable', 'Story'
+                                ])):
+                                    is_valid_hdr = False
+                            if is_valid_hdr:
+                                header_text = inner
+                                children[k].decompose()
                         break
 
                 # Found valid pair! Create system window
@@ -349,13 +438,39 @@ def format_system_windows(soup: BeautifulSoup) -> int:
 
                 win_div.append(content_div)
 
-                # Replace opening element with win_div and decompose closing delimiter
-                children[closing_idx].decompose()
+                # Replace opening element with win_div
                 el.replace_with(win_div)
-
                 windows_created += 1
-                i = closing_idx + 1
-                continue
+
+                # Check if closing delimiter is also the opening delimiter of a chained window
+                is_chained = False
+                next_closing = None
+                for j in range(closing_idx + 1, min(closing_idx + 40, len(children))):
+                    cand_el = children[j]
+                    if cand_el.find("img"):
+                        continue
+                    cand = cand_el.get_text(strip=True)
+                    if is_window_delimiter(cand):
+                        next_closing = j
+                        break
+
+                if next_closing is not None:
+                    cand_texts = [
+                        children[k].get_text(strip=True)
+                        for k in range(closing_idx + 1, next_closing)
+                        if children[k].get_text(strip=True)
+                    ]
+                    if is_chained_window(cand_texts):
+                        is_chained = True
+
+                if is_chained:
+                    # Closing delimiter acts as opening delimiter for next window in chain
+                    i = closing_idx
+                    continue
+                else:
+                    children[closing_idx].decompose()
+                    i = closing_idx + 1
+                    continue
 
         i += 1
 
